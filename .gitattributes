@@ -1,0 +1,9 @@
+# Keep dependency inputs reproducible across developer and CI platforms.
+* text=auto eol=lf
+
+# Preserve original notice bytes and archive checksums exactly.
+third_party/** -text
+*.crate binary
+*.png binary
+*.ico binary
+*.icns binary

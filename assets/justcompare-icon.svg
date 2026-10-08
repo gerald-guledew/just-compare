@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>JustCompare application icon</title>
+  <desc>Two document panes with matching lines and amber differences on a deep teal tile.</desc>
+  <!-- Original JustCompare artwork, distributed under the project MIT licence. -->
+  <defs>
+    <linearGradient id="tile" x1="160" y1="80" x2="848" y2="976" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#163C48"/>
+      <stop offset="1" stop-color="#08252D"/>
+    </linearGradient>
+    <linearGradient id="rightPane" x1="542" y1="254" x2="786" y2="770" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A4EBD7"/>
+      <stop offset="1" stop-color="#75D6BF"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#tile)"/>
+  <rect x="238" y="254" width="244" height="516" rx="46" fill="#F2F5EB"/>
+  <rect x="542" y="254" width="244" height="516" rx="46" fill="url(#rightPane)"/>
+  <g fill="#163C48">
+    <rect x="282" y="328" width="156" height="28" rx="14"/>
+    <rect x="586" y="328" width="156" height="28" rx="14"/>
+    <rect x="282" y="440" width="104" height="28" rx="14"/>
+    <rect x="586" y="552" width="104" height="28" rx="14"/>
+    <rect x="282" y="664" width="156" height="28" rx="14"/>
+    <rect x="586" y="664" width="156" height="28" rx="14"/>
+  </g>
+  <rect x="526" y="420" width="232" height="68" rx="22" fill="#F5B544"/>
+  <rect x="266" y="532" width="232" height="68" rx="22" fill="#F5B544"/>
+</svg>

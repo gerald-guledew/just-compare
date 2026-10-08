@@ -1,0 +1,39 @@
+diff --git a/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter.js b/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter.js
+index 9687c56e44f9dac9525009b8639f45d02fdb2e93..eb61edd9b7b015696a4bb0f7a4590a6bc187b36f 100644
+--- a/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter.js
++++ b/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter.js
+@@ -171,7 +171,7 @@ let WordHighlighter = class WordHighlighter {
+                 // Leave some form of early exit check here if you wish to continue being a cursor position change listener ;)
+                 return;
+             }
+-            this.runDelayer.trigger(() => { this._onPositionChanged(e); });
++            this.runDelayer.trigger(() => { this._onPositionChanged(e); }).catch(onUnexpectedError);
+         }));
+         this.toUnhook.add(editor.onDidFocusEditorText((e) => {
+             if (this.occurrencesHighlightEnablement === 'off') {
+@@ -179,7 +179,7 @@ let WordHighlighter = class WordHighlighter {
+                 return;
+             }
+             if (!this.workerRequest) {
+-                this.runDelayer.trigger(() => { this._run(); });
++                this.runDelayer.trigger(() => { this._run(); }).catch(onUnexpectedError);
+             }
+         }));
+         this.toUnhook.add(editor.onDidChangeModelContent((e) => {
+@@ -257,7 +257,7 @@ let WordHighlighter = class WordHighlighter {
+             return;
+         }
+         this.runDelayer.cancel();
+-        this.runDelayer.trigger(() => { this._run(false, delay); });
++        this.runDelayer.trigger(() => { this._run(false, delay); }).catch(onUnexpectedError);
+     }
+     stop() {
+         if (this.occurrencesHighlightEnablement === 'off') {
+diff --git a/esm/vs/base/browser/domSanitize.js b/esm/vs/base/browser/domSanitize.js
+--- a/esm/vs/base/browser/domSanitize.js
++++ b/esm/vs/base/browser/domSanitize.js
+@@ -1,3 +1,3 @@
+ import { Schemas } from '../common/network.js';
+ import { reset } from './dom.js';
+-import purify from './dompurify/dompurify.js';
++import purify from 'dompurify';

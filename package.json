@@ -1,0 +1,54 @@
+{
+  "name": "justcompare",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cross-platform desktop tool for comparing folders and files side-by-side. Built with Tauri v2, React 19, and Rust.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm notices:verify && tsc && vite build && pnpm notices:stage",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "notices:generate": "node scripts/notices.mjs --generate",
+    "notices:check": "node --test scripts/notices.test.mjs && node scripts/notices.mjs --check",
+    "notices:verify": "node scripts/notices.mjs --verify",
+    "notices:stage": "node scripts/notices.mjs --stage"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-virtual": "^3.13.24",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-store": "^2.4.2",
+    "monaco-editor": "^0.55.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.2.2",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "@vitest/browser-playwright": "4.1.11",
+    "playwright": "^1.63.0",
+    "prettier": "^3.9.9",
+    "typescript": "~5.8.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.11"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gerald-guledew/just-compare.git"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

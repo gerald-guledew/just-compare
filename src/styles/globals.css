@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+/* Cursor while rows are dragged between the folder panes (useRowPointerDrag). */
+body.jc-pointer-move-dragging,
+body.jc-pointer-move-dragging * {
+  cursor: grabbing !important;
+}
+body.jc-pointer-copy-dragging,
+body.jc-pointer-copy-dragging * {
+  cursor: copy !important;
+}
+
+/* Monaco diff decorations. Class names are referenced from
+   src/lib/monaco/buildDecorations.ts, using the Tailwind color palette. */
+.diff-line-changed {
+  background: rgb(254 242 242); /* tailwind red-50 */
+}
+.diff-segment-changed {
+  background: rgb(252 165 165); /* tailwind red-300 */
+}
+.diff-line-yellow {
+  background: rgb(254 249 195); /* tailwind yellow-100 */
+}
+.diff-line-yellow-accent {
+  border-left: 4px solid rgb(234 179 8); /* tailwind yellow-500 */
+  margin-left: 0;
+}
+
+/* Monaco paints decorations *after* the selection inside each overlay row, so
+   our opaque diff backgrounds would cover the selection highlight and make
+   selected text look unselected. Give every overlay row its own stacking
+   context and drop the diff backgrounds to the bottom of it: selection, find
+   matches and the other built-in highlights then paint on top of them. */
+.monaco-editor .view-overlays > div {
+  isolation: isolate;
+}
+.monaco-editor .view-overlays .diff-line-changed,
+.monaco-editor .view-overlays .diff-segment-changed,
+.monaco-editor .view-overlays .diff-line-yellow {
+  z-index: -1;
+}
+
+/* Monaco anchors its tooltips/context views inside the editor that has focus.
+   Near a pane's right edge the shrink-to-fit width squeezes the tooltip, it
+   wraps onto a second line *after* Monaco has positioned it for one line, and
+   the extra height lands on top of the button being hovered (e.g. the find
+   widget's close button), swallowing the click. Keep the measured width.
+   `!important` because Monaco sets `width: initial` inline on the element. */
+.context-view.monaco-component {
+  width: max-content !important;
+}
+
+/* Alignment-padding view zones use diagonal stripes to distinguish empty
+   space on the side with no content from actual document lines. */
+.diff-view-zone {
+  width: 100%;
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    rgb(209 213 219) 6px 7px /* tailwind gray-300 */
+  );
+}

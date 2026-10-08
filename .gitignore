@@ -1,0 +1,57 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Frontend build output
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri build artifacts
+/src-tauri/target/
+/src-tauri/gen/schemas/
+
+# Test / tooling
+.playwright-mcp/
+coverage/
+
+# Claude Code local state
+.claude/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+
+# Browser test artifacts
+/playwright-report/
+/test-results/
+/tests/browser/__screenshots__/
+/.vitest-attachments/
+
+# Private review records, retained outside the public source baseline
+/docs/IP_REVIEW.md

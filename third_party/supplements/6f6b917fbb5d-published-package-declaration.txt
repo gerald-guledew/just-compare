@@ -1,0 +1,12 @@
+[package]
+name = "selectors"
+version = "0.36.1"
+authors = ["The Servo Project Developers"]
+documentation = "https://docs.rs/selectors/"
+description = "CSS Selectors matching for Rust"
+repository = "https://github.com/servo/stylo"
+readme = "README.md"
+keywords = ["css", "selectors"]
+license = "MPL-2.0"
+edition = "2021"
+build = "build.rs"

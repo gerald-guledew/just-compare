@@ -1,0 +1,10 @@
+allowBuilds:
+  esbuild: true
+patchedDependencies:
+  monaco-editor@0.55.1: patches/monaco-editor@0.55.1.patch
+
+# Monaco pins DOMPurify; its renderer patch imports this reviewed security release.
+overrides:
+  # Keep every JavaScript API consumer aligned with the reviewed Rust core.
+  '@tauri-apps/api': 2.11.1
+  monaco-editor>dompurify: 3.4.16
