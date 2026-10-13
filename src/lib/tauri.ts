@@ -7,6 +7,7 @@ import type {
   SaveOutcome,
   FileDiffResult,
   FileReadResult,
+  ComparisonPathKind,
 } from "../types";
 
 export async function compareFolders(
@@ -74,6 +75,12 @@ export async function saveDocument(
 
 export async function isDirectory(path: string): Promise<boolean> {
   return invoke<boolean>("is_directory", { path });
+}
+
+export async function comparisonPathKind(
+  path: string,
+): Promise<ComparisonPathKind> {
+  return invoke<ComparisonPathKind>("comparison_path_kind", { path });
 }
 
 export interface PlannedFsItem {

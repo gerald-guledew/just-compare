@@ -10,11 +10,13 @@ JustCompare is early-stage software (0.1.0), intended for developers and contrib
 
 - Folder comparison with a virtualized tree, filters, and separate results for modified, missing, metadata-matching, and verified identical files.
 - Quick mode for fast metadata checks, or Verified mode for byte comparisons. A metadata match does not prove identical contents.
+- Unified comparison tabs that become file or folder comparisons after the first selection. Each tab keeps its own paths and results.
+- Direct file comparison with independently selected left and right files, including files with different names or locations.
 - Side-by-side text diffs with word highlights, line numbers, a minimap, and aligned word wrapping.
 - Edit either pane and copy changed blocks between files, with Monaco undo and redo.
 - Save conflict detection and external-edit awareness. Edits made while saving remain unsaved until their own save completes.
 - Copy, move, and delete selected filesystem entries, with path validation, progress, cancellation, and recovery for handled copy/move failures.
-- Drop folders or files from Finder or Explorer. Drag between folder panes to copy, or hold Shift to move.
+- Drop files or folders from Finder or Explorer into either comparison pane. Drag between folder panes to copy, or hold Shift to move.
 
 ## Build and run
 
@@ -42,7 +44,15 @@ Bundles are written to `src-tauri/target/release/bundle/`. Build each platform o
 
 ## Using the application
 
-Choose a left and right folder to compare, then select Quick or Verified mode. Open a file pair to inspect its diff. Edit either side or use the merge arrows, then save. If another application changes the file, resolve the reload/overwrite conflict before saving.
+The app starts with one **Compare** tab and two empty panes. Select a file or folder in either pane, paste its path above, or drop it onto the pane. The first valid selection chooses the comparison type and shows its controls. Choose the same type on the other side. The picker offers a file or folder choice before opening the native dialog.
+
+For folders, select Quick or Verified beside **Compare**, then click Compare. Double-click a file in the results to inspect the matching file pair. For files, the diff appears automatically once both load, including when their names or folders differ.
+
+Click **+** to start another comparison. Tabs preserve their independent paths, folder results, selection and scroll positions, and file edits. Closing the last tab returns to one blank Compare tab. New launches start blank, while wrapping and comparison-mode preferences are remembered.
+
+Click **Wrap Text** (or press Alt+Z) to fit long lines within both panes. Matching diff rows stay aligned when their wrapped heights differ. The setting is remembered between launches and does not change file contents.
+
+Edit either pane or use the merge arrows, then save. If another application changes the file, resolve the reload/overwrite conflict before saving.
 
 ## Current limitations
 

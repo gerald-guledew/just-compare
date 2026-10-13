@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FOLDER_TAB_ID,
+  INITIAL_TAB_ID,
   selectIsTabDirty,
   useAppStore,
   type FileTabBuffer,
 } from "./appStore";
 import type { ComparisonEntry, FileEntry } from "../types";
+import { saveWordWrap } from "../lib/persistence";
 
 vi.mock("../lib/persistence", () => ({
   saveComparisonMode: vi.fn().mockResolvedValue(undefined),
+  saveWordWrap: vi.fn().mockResolvedValue(undefined),
   savePaths: vi.fn().mockResolvedValue(undefined),
   loadPaths: vi.fn().mockResolvedValue({ leftPath: null, rightPath: null }),
 }));
@@ -55,11 +58,14 @@ function makeDirComparison(paths: string[]): ComparisonEntry[] {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   useAppStore.setState({
+    ...useAppStore.getInitialState(),
     leftPath: null,
     rightPath: null,
     comparison: null,
     comparing: false,
+    wordWrap: false,
     error: null,
     expandedPaths: new Set<string>(),
     columnWidths: { size: 96, modified: 160 },
@@ -72,6 +78,301 @@ beforeEach(() => {
 });
 
 // ------- Tier 1 -------
+
+describe("unified comparison tabs", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+  });
+
+  it("starts with one neutral tab and no selected paths", () => {
+    const state = useAppStore.getInitialState();
+    expect(state.tabs).toEqual([{ id: INITIAL_TAB_ID, kind: "compare" }]);
+    expect(state.activeTabId).toBe(INITIAL_TAB_ID);
+    expect(state.leftPath).toBeNull();
+    expect(state.rightPath).toBeNull();
+    expect(state.fileTabs).toEqual({});
+    expect(state.folderTabs).toEqual({});
+  });
+
+  it("uses the same tab for a first file on either side and preserves the other path", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/r/right.md", "file");
+    expect(useAppStore.getState().tabs).toEqual([
+      {
+        id: INITIAL_TAB_ID,
+        kind: "file-compare",
+        leftFilePath: "",
+        rightFilePath: "/r/right.md",
+        displayName: "right.md",
+      },
+    ]);
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l/left.md", "file");
+    expect(useAppStore.getState().tabs[0]).toMatchObject({
+      id: INITIAL_TAB_ID,
+      leftFilePath: "/l/left.md",
+      rightFilePath: "/r/right.md",
+    });
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/folder", "folder");
+    expect(useAppStore.getState().tabs[0].kind).toBe("file-compare");
+  });
+
+  it("opens a direct pair in the current neutral tab", () => {
+    useAppStore.getState().openFilePairTab("/l/a.md", "/r/b.md");
+    expect(useAppStore.getState().tabs).toHaveLength(1);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({
+      id: INITIAL_TAB_ID,
+      kind: "file-compare",
+      leftFilePath: "/l/a.md",
+      rightFilePath: "/r/b.md",
+    });
+  });
+
+  it("creates separate neutral tabs even when every tab is empty", () => {
+    const store = useAppStore.getState();
+    store.newCompareTab();
+    store.newCompareTab();
+    const { tabs, activeTabId } = useAppStore.getState();
+    expect(tabs).toHaveLength(3);
+    expect(new Set(tabs.map((tab) => tab.id)).size).toBe(3);
+    expect(tabs.every((tab) => tab.kind === "compare")).toBe(true);
+    expect(activeTabId).toBe(tabs[2].id);
+  });
+
+  it("clears active folder globals for a neutral tab while retaining its snapshot and mode", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l", "folder");
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/r", "folder");
+    store.setComparisonMode("Verified");
+    const comparison = makeDirComparison(["src"]);
+    store.setComparison(comparison);
+    store.toggleExpanded("src");
+    store.setSelection(["src"]);
+    store.setError("Folder warning");
+    useAppStore.setState({ comparisonWarnings: ["Scan warning"] });
+    store.newCompareTab();
+    const state = useAppStore.getState();
+    expect(state.leftPath).toBeNull();
+    expect(state.rightPath).toBeNull();
+    expect(state.comparison).toBeNull();
+    expect(state.comparisonMode).toBe("Verified");
+    expect(state.error).toBeNull();
+    expect(state.comparisonWarnings).toEqual([]);
+    expect(state.expandedPaths).toEqual(new Set());
+    expect(state.selectedPaths).toEqual(new Set());
+    expect(state.selectionAnchor).toBeNull();
+    expect(state.folderTabs[INITIAL_TAB_ID]).toMatchObject({
+      leftPath: "/l",
+      rightPath: "/r",
+      comparison,
+      comparisonMode: "Verified",
+      error: "Folder warning",
+      comparisonWarnings: ["Scan warning"],
+      selectedPaths: new Set(["src"]),
+    });
+    store.setActiveTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState().comparison).toBe(comparison);
+  });
+
+  it("changes the tab lifecycle version for away-and-back switches and last-tab reset", () => {
+    const store = useAppStore.getState();
+    const initialVersion = useAppStore.getState().tabLifecycleVersion;
+    store.newCompareTab();
+    const secondId = useAppStore.getState().activeTabId;
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(initialVersion + 1);
+    store.setActiveTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(initialVersion + 2);
+    store.setActiveTab(secondId);
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(initialVersion + 3);
+    store.setActiveTab(secondId);
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(initialVersion + 3);
+    store.closeTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(initialVersion + 3);
+    store.closeTab(secondId);
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(initialVersion + 4);
+    expect(useAppStore.getState().activeTabId).toBe(INITIAL_TAB_ID);
+  });
+
+  it("keeps the lifecycle version stable when selecting either file side in place", () => {
+    const store = useAppStore.getState();
+    const version = useAppStore.getState().tabLifecycleVersion;
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l/a.md", "file");
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/r/b.md", "file");
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l/c.md", "file");
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(version);
+  });
+
+  it("keeps the lifecycle version stable for first folder selection, opposite side and mode", () => {
+    const store = useAppStore.getState();
+    const version = useAppStore.getState().tabLifecycleVersion;
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/r", "folder");
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l", "folder");
+    store.setComparisonMode("Verified");
+    store.setLeftPath("/changed-left");
+    store.setRightPath("/changed-right");
+    expect(useAppStore.getState().tabLifecycleVersion).toBe(version);
+  });
+
+  it("restores independent folder roots, results, mode, errors and selection", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/a/left", "folder");
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/a/right", "folder");
+    store.setComparisonMode("Verified");
+    const firstResult = makeDirComparison(["src"]);
+    store.setComparison(firstResult);
+    store.toggleExpanded("src");
+    store.setSelection(["src"]);
+    store.setError("First folder error");
+    useAppStore.setState({ comparisonWarnings: ["First folder warning"] });
+    store.newCompareTab();
+    const secondId = useAppStore.getState().activeTabId;
+    store.selectComparisonPath(secondId, "right", "/b/right", "folder");
+    expect(useAppStore.getState().leftPath).toBeNull();
+    expect(useAppStore.getState().comparison).toBeNull();
+    expect(useAppStore.getState().comparisonMode).toBe("Verified");
+    store.selectComparisonPath(secondId, "left", "/b/left", "folder");
+    store.setComparisonMode("Quick");
+    const secondResult = makeDirComparison(["docs"]);
+    store.setComparison(secondResult);
+
+    store.setActiveTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState()).toMatchObject({
+      leftPath: "/a/left",
+      rightPath: "/a/right",
+      comparison: firstResult,
+      comparisonMode: "Verified",
+      error: "First folder error",
+      comparisonWarnings: ["First folder warning"],
+      expandedPaths: new Set(["src"]),
+      selectedPaths: new Set(["src"]),
+      selectionAnchor: "src",
+      comparing: false,
+    });
+    store.setActiveTab(secondId);
+    expect(useAppStore.getState()).toMatchObject({
+      leftPath: "/b/left",
+      rightPath: "/b/right",
+      comparison: secondResult,
+      comparisonMode: "Quick",
+      error: null,
+      comparisonWarnings: [],
+      expandedPaths: new Set(),
+      selectedPaths: new Set(),
+    });
+  });
+
+  it("retains file edits across folder and neutral tab switches and closes", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l/a.md", "file");
+    const buffer = makeBuffer({ text: "edited\n", dirty: true });
+    store.setFileTabBuffer(INITIAL_TAB_ID, "left", buffer);
+    store.newCompareTab();
+    const folderId = useAppStore.getState().activeTabId;
+    store.selectComparisonPath(folderId, "left", "/folders/left", "folder");
+    store.newCompareTab();
+    store.closeTab(folderId);
+    store.setActiveTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState().fileTabs[INITIAL_TAB_ID].left).toBe(buffer);
+    expect(useAppStore.getState().fileTabs[INITIAL_TAB_ID].left?.dirty).toBe(
+      true,
+    );
+    expect(useAppStore.getState().folderTabs[folderId]).toBeUndefined();
+  });
+
+  it("restores the remaining folder comparison when closing the active folder tab", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/first/left", "folder");
+    store.selectComparisonPath(
+      INITIAL_TAB_ID,
+      "right",
+      "/first/right",
+      "folder",
+    );
+    const comparison = makeDirComparison(["src"]);
+    store.setComparison(comparison);
+    store.newCompareTab();
+    const secondId = useAppStore.getState().activeTabId;
+    store.selectComparisonPath(secondId, "left", "/second/left", "folder");
+    store.closeTab(secondId);
+    expect(useAppStore.getState().activeTabId).toBe(INITIAL_TAB_ID);
+    expect(useAppStore.getState().leftPath).toBe("/first/left");
+    expect(useAppStore.getState().rightPath).toBe("/first/right");
+    expect(useAppStore.getState().comparison).toBe(comparison);
+    expect(useAppStore.getState().folderTabs[secondId]).toBeUndefined();
+  });
+
+  it("clears the final folder comparison and returns to one empty neutral tab", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l", "folder");
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/r", "folder");
+    store.setComparison(makeDirComparison(["src"]));
+    store.toggleExpanded("src");
+    store.setSelection(["src"]);
+    store.closeTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState()).toMatchObject({
+      tabs: [{ id: INITIAL_TAB_ID, kind: "compare" }],
+      activeTabId: INITIAL_TAB_ID,
+      leftPath: null,
+      rightPath: null,
+      comparison: null,
+      folderTabs: {},
+      selectedPaths: new Set(),
+      expandedPaths: new Set(),
+    });
+  });
+
+  it("drops a final file tab's buffers when returning to the empty comparison", () => {
+    const store = useAppStore.getState();
+    store.openFilePairTab("/l/a", "/r/a");
+    store.setFileTabBuffer(INITIAL_TAB_ID, "left", makeBuffer());
+    store.closeTab(INITIAL_TAB_ID);
+    expect(useAppStore.getState().tabs).toEqual([
+      { id: INITIAL_TAB_ID, kind: "compare" },
+    ]);
+    expect(useAppStore.getState().fileTabs).toEqual({});
+  });
+
+  it("holds the operation's active folder context until the operation finishes", () => {
+    const store = useAppStore.getState();
+    store.selectComparisonPath(INITIAL_TAB_ID, "left", "/l", "folder");
+    store.newCompareTab();
+    const secondId = useAppStore.getState().activeTabId;
+    store.setActiveTab(INITIAL_TAB_ID);
+    useAppStore.setState({ operating: true });
+    store.setActiveTab(secondId);
+    store.newCompareTab();
+    store.closeTab(INITIAL_TAB_ID);
+    store.openFilePairTab("/a", "/b");
+    store.selectComparisonPath(INITIAL_TAB_ID, "right", "/r", "folder");
+    expect(useAppStore.getState().activeTabId).toBe(INITIAL_TAB_ID);
+    expect(useAppStore.getState().tabs).toHaveLength(2);
+    expect(useAppStore.getState().rightPath).toBeNull();
+  });
+});
+
+describe("wordWrap", () => {
+  it("defaults to unwrapped text", () => {
+    expect(useAppStore.getInitialState().wordWrap).toBe(false);
+  });
+
+  it("updates and persists the preference in either direction", () => {
+    const store = useAppStore.getState();
+    store.setWordWrap(true);
+    expect(useAppStore.getState().wordWrap).toBe(true);
+    expect(saveWordWrap).toHaveBeenLastCalledWith(true);
+
+    store.setWordWrap(false);
+    expect(useAppStore.getState().wordWrap).toBe(false);
+    expect(saveWordWrap).toHaveBeenLastCalledWith(false);
+  });
+
+  it("retains wrap preference when switching between comparisons", () => {
+    const store = useAppStore.getState();
+    store.setWordWrap(true);
+    store.openFilePairTab("/L/a.txt", "/R/b.txt");
+    store.setActiveTab(FOLDER_TAB_ID);
+    expect(useAppStore.getState().wordWrap).toBe(true);
+  });
+});
 
 describe("setComparison", () => {
   it("resets expansion by default for a fresh comparison", () => {
@@ -145,10 +446,135 @@ describe("openFileCompareTab", () => {
   });
 });
 
+describe("openFilePairTab", () => {
+  const leftFilePath = "/docs/Gerald/HalterIntermediateEngineers.md";
+  const rightFilePath = "/docs/Gerald/HalterSeniorEngineers.md";
+
+  it("opens different filenames without a folder comparison", () => {
+    useAppStore.getState().openFilePairTab(leftFilePath, rightFilePath);
+
+    const { tabs, activeTabId, leftPath, rightPath, comparison } =
+      useAppStore.getState();
+    expect(tabs).toHaveLength(2);
+    expect(tabs[1]).toEqual({
+      id: activeTabId,
+      kind: "file-compare",
+      leftFilePath,
+      rightFilePath,
+      displayName: "HalterIntermediateEngineers.md ↔ HalterSeniorEngineers.md",
+    });
+    expect(leftPath).toBeNull();
+    expect(rightPath).toBeNull();
+    expect(comparison).toBeNull();
+  });
+
+  it("preserves existing folder roots, results and selection", () => {
+    const comparison = makeDirComparison(["src"]);
+    const expandedPaths = new Set(["src"]);
+    const selectedPaths = new Set(["src"]);
+    useAppStore.setState({
+      leftPath: "/folders/left",
+      rightPath: "/folders/right",
+      comparison,
+      expandedPaths,
+      selectedPaths,
+      selectionAnchor: "src",
+      error: "Folder warning",
+    });
+
+    useAppStore.getState().openFilePairTab(leftFilePath, rightFilePath);
+
+    const state = useAppStore.getState();
+    expect(state.leftPath).toBe("/folders/left");
+    expect(state.rightPath).toBe("/folders/right");
+    expect(state.comparison).toBe(comparison);
+    expect(state.expandedPaths).toBe(expandedPaths);
+    expect(state.selectedPaths).toBe(selectedPaths);
+    expect(state.selectionAnchor).toBe("src");
+    expect(state.error).toBe("Folder warning");
+  });
+
+  it("reuses an exact pair and keeps a swapped pair separate", () => {
+    const store = useAppStore.getState();
+    store.openFilePairTab(leftFilePath, rightFilePath);
+    const firstId = useAppStore.getState().activeTabId;
+    store.openFilePairTab(rightFilePath, leftFilePath);
+    const swappedId = useAppStore.getState().activeTabId;
+    expect(swappedId).not.toBe(firstId);
+
+    store.openFilePairTab(leftFilePath, rightFilePath);
+
+    expect(useAppStore.getState().tabs).toHaveLength(3);
+    expect(useAppStore.getState().activeTabId).toBe(firstId);
+  });
+
+  it("creates and reuses an empty File Compare tab", () => {
+    const store = useAppStore.getState();
+    store.openFilePairTab("", "");
+    const id = useAppStore.getState().activeTabId;
+    expect(useAppStore.getState().tabs[1]).toEqual({
+      id,
+      kind: "file-compare",
+      leftFilePath: "",
+      rightFilePath: "",
+      displayName: "File Compare",
+    });
+    store.setActiveTab(FOLDER_TAB_ID);
+
+    store.openFilePairTab("", "");
+
+    expect(useAppStore.getState().tabs).toHaveLength(2);
+    expect(useAppStore.getState().activeTabId).toBe(id);
+  });
+
+  it("shares existing folder file tabs with direct pairs", () => {
+    const store = useAppStore.getState();
+    store.openFileCompareTab("/L", "/R", "sub/file.txt");
+    const id = useAppStore.getState().activeTabId;
+
+    store.openFilePairTab("/L/sub/file.txt", "/R/sub/file.txt");
+
+    expect(useAppStore.getState().tabs).toHaveLength(2);
+    expect(useAppStore.getState().activeTabId).toBe(id);
+    expect(useAppStore.getState().tabs[1]).toMatchObject({
+      displayName: "file.txt",
+    });
+  });
+
+  it("updates labels as either side is selected or replaced", () => {
+    const store = useAppStore.getState();
+    store.openFilePairTab("", "");
+    const id = useAppStore.getState().activeTabId;
+    const label = () => {
+      const tab = useAppStore.getState().tabs.find((t) => t.id === id);
+      if (tab?.kind !== "file-compare") throw new Error("expected file tab");
+      return tab.displayName;
+    };
+
+    store.setTabFilePath(id, "right", rightFilePath);
+    expect(label()).toBe("HalterSeniorEngineers.md");
+    store.setTabFilePath(id, "left", leftFilePath);
+    expect(label()).toBe(
+      "HalterIntermediateEngineers.md ↔ HalterSeniorEngineers.md",
+    );
+    store.setTabFilePath(id, "left", "/other/HalterSeniorEngineers.md");
+    expect(label()).toBe("HalterSeniorEngineers.md");
+    store.setTabFilePath(id, "right", "");
+    expect(label()).toBe("HalterSeniorEngineers.md");
+    store.setTabFilePath(id, "left", "");
+    expect(label()).toBe("File Compare");
+    store.setTabFilePath(id, "left", "C:\\docs\\left.md");
+    store.setTabFilePath(id, "right", "C:\\docs\\right.md");
+    expect(label()).toBe("left.md ↔ right.md");
+  });
+});
+
 describe("closeTab", () => {
-  it("ignores the folder tab", () => {
+  it("resets the last folder tab to a neutral comparison", () => {
     useAppStore.getState().closeTab(FOLDER_TAB_ID);
-    expect(useAppStore.getState().tabs).toHaveLength(1);
+    expect(useAppStore.getState().tabs).toEqual([
+      { id: INITIAL_TAB_ID, kind: "compare" },
+    ]);
   });
 
   it("removes the tab and drops its fileTabs entry", () => {

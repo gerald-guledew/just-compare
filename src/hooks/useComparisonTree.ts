@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { ComparisonEntry, FlatComparisonEntry } from "../types";
 import { useDiffScroll } from "./useDiffScroll";
+import { useAppStore } from "../stores/appStore";
 
 const ROW_HEIGHT = 32;
 
@@ -53,6 +54,13 @@ export function useComparisonTree(
   comparison: ComparisonEntry[] | null,
   expandedPaths: Set<string>,
 ) {
+  const tabId = useAppStore((state) => state.activeTabId);
+  const leftPath = useAppStore((state) => state.leftPath);
+  const rightPath = useAppStore((state) => state.rightPath);
+  const scrollContext = useMemo(
+    () => ({ tabId, leftPath, rightPath }),
+    [tabId, leftPath, rightPath],
+  );
   const flatItems = useMemo(
     () => flattenComparisonTree(comparison, expandedPaths),
     [comparison, expandedPaths],
@@ -61,6 +69,7 @@ export function useComparisonTree(
   const scroll = useDiffScroll({
     count: flatItems.length,
     rowHeight: ROW_HEIGHT,
+    scrollContext,
   });
 
   return {

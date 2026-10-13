@@ -9,14 +9,16 @@ import {
 } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
-  FOLDER_TAB_ID,
+  selectActiveFolderTab,
   selectIsTabDirty,
   useAppStore,
   type Side,
 } from "./stores/appStore";
 import { useComparison } from "./hooks/useComparison";
 import { useFolderOps, type OperationKind } from "./hooks/useFolderOps";
-import { isDirectory, openFolderDialog } from "./lib/tauri";
+import { openFolderDialog } from "./lib/tauri";
+import { useComparisonPaths } from "./hooks/useComparisonPaths";
+import { ComparisonSetupView } from "./components/ComparisonSetupView";
 import { Toolbar } from "./components/Toolbar";
 import { TabBar } from "./components/TabBar";
 import { ComparisonView } from "./components/ComparisonView";
@@ -35,7 +37,7 @@ import { FolderDropTarget } from "./components/FolderDropTarget";
 import { StatusBar } from "./components/StatusBar";
 import { ConflictDialog } from "./components/ConflictDialog";
 import { ProgressDialog } from "./components/ProgressDialog";
-import { loadPaths, loadComparisonMode } from "./lib/persistence";
+import { loadComparisonMode, loadWordWrap } from "./lib/persistence";
 
 async function reloadActiveFileTab(): Promise<void> {
   await reloadTab(useAppStore.getState().activeTabId);
@@ -71,9 +73,8 @@ export default function App() {
   const comparison = useAppStore((s) => s.comparison);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
+  const tabLifecycleVersion = useAppStore((s) => s.tabLifecycleVersion);
   const closeTab = useAppStore((s) => s.closeTab);
-  const setLeftPath = useAppStore((s) => s.setLeftPath);
-  const setRightPath = useAppStore((s) => s.setRightPath);
   const isActiveDirty = useAppStore((s) => selectIsTabDirty(s, s.activeTabId));
   const selectionSize = useAppStore((s) => s.selectedPaths.size);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -83,6 +84,10 @@ export default function App() {
   const mode = useAppStore((s) => s.comparisonMode);
   const warnings = useAppStore((s) => s.comparisonWarnings);
   const folderOps = useFolderOps();
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+  const isFolderTab = activeTab.kind === "folder-compare";
+  const isFileTab = activeTab.kind === "file-compare";
+  const paths = useComparisonPaths(activeTab.id);
   useEffect(() => installDocumentWatch(), []);
 
   const handleAction = useCallback(
@@ -91,9 +96,18 @@ export default function App() {
       sourceSide: Side,
       target: "left" | "right" | "arbitrary",
     ) => {
+      const state = useAppStore.getState();
+      if (!selectActiveFolderTab(state) || state.operating) return;
       if (target === "arbitrary") {
         const folder = await openFolderDialog();
         if (!folder) return;
+        const latest = useAppStore.getState();
+        if (
+          latest.activeTabId !== state.activeTabId ||
+          latest.comparisonContextVersion !== state.comparisonContextVersion ||
+          latest.selectedPaths !== state.selectedPaths
+        )
+          return;
         await folderOps.runOperation({
           kind,
           sourceSide,
@@ -112,9 +126,9 @@ export default function App() {
   );
 
   useEffect(() => {
-    Promise.all([loadPaths(), loadComparisonMode()])
-      .then(([{ leftPath, rightPath }, comparisonMode]) => {
-        useAppStore.setState({ leftPath, rightPath, comparisonMode });
+    Promise.all([loadComparisonMode(), loadWordWrap()])
+      .then(([comparisonMode, wordWrap]) => {
+        useAppStore.setState({ comparisonMode, wordWrap });
       })
       .catch(console.error);
   }, []);
@@ -123,7 +137,6 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w") {
         const { activeTabId } = useAppStore.getState();
-        if (activeTabId === FOLDER_TAB_ID) return;
         e.preventDefault();
         const dirty = selectIsTabDirty(useAppStore.getState(), activeTabId);
         if (!dirty) {
@@ -142,33 +155,14 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeTab]);
 
-  const { pickLeft, pickRight, compare } = useComparison();
+  const { compare } = useComparison();
 
-  // A folder dropped from Finder/Explorer on one half of the folder tab
-  // becomes that side's folder; the comparison runs once both are set.
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const handleFolderDrop = useCallback(
-    async (side: Side, path: string) => {
-      const { comparing, setError } = useAppStore.getState();
-      if (comparing || useAppStore.getState().operating) return;
-      if (!(await isDirectory(path))) {
-        setError(`"${path}" is not a folder. Drop a folder to compare it.`);
-        return;
-      }
-      if (side === "left") setLeftPath(path);
-      else setRightPath(path);
-      await compare();
-    },
-    [setLeftPath, setRightPath, compare],
-  );
-
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
-  const isFolderTab = activeTab.kind === "folder-compare";
 
   const handleRefresh = useCallback(() => {
     if (isFolderTab) compare();
-    else void reloadActiveFileTab();
-  }, [isFolderTab, compare]);
+    else if (isFileTab) void reloadActiveFileTab();
+  }, [isFolderTab, isFileTab, compare]);
 
   const refreshDisabled =
     isFolderTab && (comparing || operating || !leftPath || !rightPath);
@@ -177,9 +171,34 @@ export default function App() {
     void saveActiveFileTab();
   }, []);
 
-  const canSave = !isFolderTab && isActiveDirty;
+  const canSave = isFileTab && isActiveDirty;
 
-  // Cmd/Ctrl+Z is intentionally NOT handled here — the focused Monaco editor
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.altKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        (e.code === "KeyZ" || e.key.toLowerCase() === "z")
+      ) {
+        const state = useAppStore.getState();
+        if (
+          !state.tabs.some(
+            (tab) =>
+              tab.id === state.activeTabId && tab.kind === "file-compare",
+          )
+        )
+          return;
+        e.preventDefault();
+        state.setWordWrap(!state.wordWrap);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Cmd/Ctrl+Z is intentionally NOT handled here: the focused Monaco editor
   // owns undo for typed edits AND for merge-button edits (merges go through
   // Monaco's edit API). A window-level listener would double-fire alongside
   // Monaco's native undo and either undo twice or undo nothing depending on
@@ -192,7 +211,14 @@ export default function App() {
         e.key.toLowerCase() === "s"
       ) {
         const { activeTabId } = useAppStore.getState();
-        if (activeTabId === FOLDER_TAB_ID) return;
+        if (
+          !useAppStore
+            .getState()
+            .tabs.some(
+              (tab) => tab.id === activeTabId && tab.kind === "file-compare",
+            )
+        )
+          return;
         e.preventDefault();
         void saveActiveFileTab();
       }
@@ -204,8 +230,10 @@ export default function App() {
   // Folder-tab-only shortcuts: copy/move actions and Esc-clears-selection.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const { activeTabId } = useAppStore.getState();
-      if (activeTabId !== FOLDER_TAB_ID || useAppStore.getState().operating)
+      if (
+        !selectActiveFolderTab(useAppStore.getState()) ||
+        useAppStore.getState().operating
+      )
         return;
       // Skip if user is typing in an input.
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -291,16 +319,21 @@ export default function App() {
           mode={mode}
           onModeChange={useAppStore.getState().setComparisonMode}
           selectionSize={selectionSize}
-          onPickLeft={pickLeft}
-          onPickRight={pickRight}
           onCompare={compare}
-          onCommitLeft={setLeftPath}
-          onCommitRight={setRightPath}
           onAction={(kind, sourceSide, target) =>
             void handleAction(kind, sourceSide, target)
           }
           onDelete={(side) => void folderOps.runDelete(side)}
         />
+      )}
+
+      {paths.error && (
+        <div
+          role="alert"
+          className="px-4 py-2 bg-red-50 text-red-700 text-sm border-b border-red-200"
+        >
+          {paths.error}
+        </div>
       )}
 
       {isFolderTab && error && (
@@ -323,29 +356,38 @@ export default function App() {
         </div>
       )}
       <div ref={contentRef} className="relative flex-1 overflow-hidden p-2">
-        {isFolderTab && (
+        {isFolderTab && comparison && (
           <FolderDropTarget
             areaRef={contentRef}
-            onDropFolder={(side, path) => void handleFolderDrop(side, path)}
+            onDropFolder={(side, path) =>
+              void paths.commitPath(side, path, true)
+            }
           />
         )}
-        {/* Folder pane stays mounted across tab switches so its scroll
-            position (and the TanStack virtualizer's internal state) is
-            preserved when the user pops out to a file-compare tab and back. */}
-        <div className={isFolderTab ? "h-full" : "hidden"}>
-          {comparison ? (
-            <ComparisonView
-              onRunOperation={folderOps.runOperation}
-              onDelete={folderOps.runDelete}
+        {isFolderTab && comparison ? (
+          <ComparisonView
+            key={activeTab.id}
+            onRunOperation={folderOps.runOperation}
+            onDelete={folderOps.runDelete}
+            onPathCommit={paths.commitPath}
+            onPick={(side) => void paths.pickPath(side, "folder")}
+            disabled={operating || comparing}
+          />
+        ) : (
+          !isFileTab && (
+            <ComparisonSetupView
+              key={`${activeTab.id}:${tabLifecycleVersion}`}
+              itemKind={isFolderTab ? "folder" : "unknown"}
+              leftPath={isFolderTab ? (leftPath ?? "") : ""}
+              rightPath={isFolderTab ? (rightPath ?? "") : ""}
+              pendingSides={paths.pendingSides}
+              disabled={operating || comparing}
+              onPathCommit={paths.commitPath}
+              onPick={(side, kind) => void paths.pickPath(side, kind)}
+              onDrop={(side, path) => void paths.commitPath(side, path, true)}
             />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-400">
-              {comparing
-                ? "Comparing folders\u2026"
-                : "Select two folders and click Compare"}
-            </div>
-          )}
-        </div>
+          )
+        )}
 
         {!isFolderTab && activeTab.kind === "file-compare" && (
           <EditorBoundary key={activeTab.id}>
@@ -355,6 +397,9 @@ export default function App() {
                 tabId={activeTab.id}
                 leftFilePath={activeTab.leftFilePath}
                 rightFilePath={activeTab.rightFilePath}
+                onPathCommit={paths.commitPath}
+                onPickFile={(side) => void paths.pickPath(side, "file")}
+                pathsDisabled={operating}
               />
             </Suspense>
           </EditorBoundary>

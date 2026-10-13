@@ -1,18 +1,28 @@
 import { useCallback } from "react";
 import { openFolderDialog, compareFolders } from "../lib/tauri";
-import { useAppStore } from "../stores/appStore";
+import { selectActiveFolderTab, useAppStore } from "../stores/appStore";
 let generation = 0;
 export async function refreshComparison(
   preserveExpanded = false,
 ): Promise<void> {
-  const { leftPath, rightPath, comparisonMode } = useAppStore.getState();
-  if (!leftPath || !rightPath) return;
+  const state = useAppStore.getState();
+  const {
+    leftPath,
+    rightPath,
+    comparisonMode,
+    activeTabId,
+    comparisonContextVersion,
+  } = state;
+  if (!selectActiveFolderTab(state) || !leftPath || !rightPath) return;
   const request = ++generation;
   useAppStore.setState({ error: null, comparing: true });
   const isCurrent = () => {
     const s = useAppStore.getState();
     return (
       generation === request &&
+      s.activeTabId === activeTabId &&
+      !!selectActiveFolderTab(s) &&
+      s.comparisonContextVersion === comparisonContextVersion &&
       s.leftPath === leftPath &&
       s.rightPath === rightPath &&
       s.comparisonMode === comparisonMode
@@ -29,19 +39,29 @@ export async function refreshComparison(
         .getState()
         .setError(e instanceof Error ? e.message : String(e));
   } finally {
-    if (generation === request) useAppStore.setState({ comparing: false });
+    const current = useAppStore.getState();
+    if (generation === request && current.activeTabId === activeTabId)
+      useAppStore.setState({ comparing: false });
   }
 }
 export function useComparison() {
   const pickLeft = useCallback(async () => {
+    const { activeTabId, operating } = useAppStore.getState();
+    if (operating) return;
     const path = await openFolderDialog();
     if (path && !useAppStore.getState().operating)
-      useAppStore.getState().setLeftPath(path);
+      useAppStore
+        .getState()
+        .selectComparisonPath(activeTabId, "left", path, "folder");
   }, []);
   const pickRight = useCallback(async () => {
+    const { activeTabId, operating } = useAppStore.getState();
+    if (operating) return;
     const path = await openFolderDialog();
     if (path && !useAppStore.getState().operating)
-      useAppStore.getState().setRightPath(path);
+      useAppStore
+        .getState()
+        .selectComparisonPath(activeTabId, "right", path, "folder");
   }, []);
   const compare = useCallback(async () => {
     if (!useAppStore.getState().operating) await refreshComparison();

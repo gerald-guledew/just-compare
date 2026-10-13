@@ -14,6 +14,7 @@ pub fn run() {
             commands::diff::diff_text,
             commands::files::read_file_text,
             commands::files::file_version,
+            commands::files::comparison_path_kind,
             commands::merge::save_document,
             commands::fs_ops::resolve_paths,
             commands::fs_ops::is_directory,

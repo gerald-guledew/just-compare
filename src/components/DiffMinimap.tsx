@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type * as monaco from "monaco-editor";
 import type { DiffLine, DiffLineKind } from "../types";
 
 interface DiffMinimapProps {
   lines: DiffLine[];
+  leftEditor: monaco.editor.IStandaloneCodeEditor | null;
+  rightEditor: monaco.editor.IStandaloneCodeEditor | null;
   totalContentHeight: number;
   scrollTop: number;
   viewportHeight: number;
@@ -21,6 +24,8 @@ function tickColorClass(_kind: DiffLineKind): string {
 
 export function DiffMinimap({
   lines,
+  leftEditor,
+  rightEditor,
   totalContentHeight,
   scrollTop,
   viewportHeight,
@@ -28,6 +33,21 @@ export function DiffMinimap({
 }: DiffMinimapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const [, setGeometryVersion] = useState(0);
+
+  useEffect(() => {
+    const update = () => setGeometryVersion((version) => version + 1);
+    const subscriptions = [leftEditor, rightEditor].flatMap((editor) =>
+      editor
+        ? [
+            editor.onDidLayoutChange(update),
+            editor.onDidContentSizeChange(update),
+          ]
+        : [],
+    );
+    return () =>
+      subscriptions.forEach((subscription) => subscription.dispose());
+  }, [leftEditor, rightEditor]);
 
   const runs = useMemo<Run[]>(() => {
     const out: Run[] = [];
@@ -108,14 +128,43 @@ export function DiffMinimap({
       aria-label="Diff minimap"
     >
       {runs.map((run) => {
-        const topPct = totalLines > 0 ? (run.start / totalLines) * 100 : 0;
-        const heightPct =
-          totalLines > 0
-            ? Math.max(0.5, ((run.end - run.start) / totalLines) * 100)
+        const first = lines[run.start];
+        const last = lines[run.end - 1];
+        const top = Math.max(
+          first.left_num !== null && leftEditor
+            ? leftEditor.getTopForLineNumber(first.left_num)
+            : 0,
+          first.right_num !== null && rightEditor
+            ? rightEditor.getTopForLineNumber(first.right_num)
+            : 0,
+        );
+        const bottom = Math.max(
+          last.left_num !== null && leftEditor
+            ? leftEditor.getBottomForLineNumber(last.left_num)
+            : 0,
+          last.right_num !== null && rightEditor
+            ? rightEditor.getBottomForLineNumber(last.right_num)
+            : 0,
+        );
+        const hasGeometry =
+          !!(leftEditor || rightEditor) && totalContentHeight > 0;
+        const topPct = hasGeometry
+          ? (top / totalContentHeight) * 100
+          : totalLines > 0
+            ? (run.start / totalLines) * 100
             : 0;
+        const heightPct = Math.max(
+          0.5,
+          hasGeometry
+            ? ((bottom - top) / totalContentHeight) * 100
+            : totalLines > 0
+              ? ((run.end - run.start) / totalLines) * 100
+              : 0,
+        );
         return (
           <div
             key={run.start}
+            data-diff-start={run.start}
             className={`absolute left-0 right-0 ${tickColorClass(run.kind)}`}
             style={{
               top: `${topPct}%`,

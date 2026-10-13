@@ -68,25 +68,19 @@ export function ComparisonPane({
   return (
     <div
       data-comparison-pane-side={side}
-      className={`flex flex-col h-full border rounded-lg overflow-hidden bg-white ${
-        isDropTarget ? "border-blue-400 ring-2 ring-blue-400 ring-inset" : "border-gray-200"
+      className={`flex flex-col h-full overflow-hidden bg-white ${
+        isDropTarget ? "ring-2 ring-blue-400 ring-inset" : ""
       }`}
     >
       {/* Column headers */}
       <div className="flex items-center h-8 px-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide select-none">
         <span className="flex-1 pl-12">Name</span>
         <ColumnResizeHandle onResize={onResizeSize} />
-        <span
-          className="text-right"
-          style={{ width: columnWidths.size }}
-        >
+        <span className="text-right" style={{ width: columnWidths.size }}>
           Size
         </span>
         <ColumnResizeHandle onResize={onResizeModified} />
-        <span
-          className="text-right"
-          style={{ width: columnWidths.modified }}
-        >
+        <span className="text-right" style={{ width: columnWidths.modified }}>
           Modified
         </span>
       </div>
@@ -112,9 +106,7 @@ export function ComparisonPane({
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const item = flatItems[virtualRow.index];
             const entry =
-              side === "left"
-                ? item.comparison.left
-                : item.comparison.right;
+              side === "left" ? item.comparison.left : item.comparison.right;
             const fileEntry = item.comparison.left ?? item.comparison.right;
             const relativePath = fileEntry?.relative_path ?? "";
 

@@ -12,16 +12,25 @@ import type { RowClick } from "./FileRow";
 import type { OperationKind, OperationSpec } from "../hooks/useFolderOps";
 import { useRowPointerDrag } from "../hooks/useRowPointerDrag";
 import { openFolderDialog } from "../lib/tauri";
+import { PaneHeader, type PathCommitResult } from "./PaneHeader";
 
 interface ComparisonViewProps {
   onRunOperation: (spec: OperationSpec) => Promise<void>;
   onDelete: (side: Side) => Promise<void>;
+  onPathCommit: (side: Side, path: string) => PathCommitResult;
+  onPick: (side: Side) => void;
+  disabled?: boolean;
 }
 
 export function ComparisonView({
   onRunOperation,
   onDelete,
+  onPathCommit,
+  onPick,
+  disabled = false,
 }: ComparisonViewProps) {
+  const leftPath = useAppStore((s) => s.leftPath);
+  const rightPath = useAppStore((s) => s.rightPath);
   const comparison = useAppStore((s) => s.comparison);
   const expandedPaths = useAppStore((s) => s.expandedPaths);
   const toggleExpanded = useAppStore((s) => s.toggleExpanded);
@@ -56,7 +65,7 @@ export function ComparisonView({
     rowHeight,
   } = useComparisonTree(comparison, expandedPaths);
 
-  // The visible flat list of relative paths — needed for shift-select range
+  // The visible flat list of relative paths, needed for shift-select range
   // expansion in the store.
   const flatPaths = useMemo(
     () =>
@@ -95,8 +104,17 @@ export function ComparisonView({
         (kind: OperationKind, target: "left" | "right" | "arbitrary") =>
         async () => {
           if (target === "arbitrary") {
+            const state = useAppStore.getState();
             const folder = await openFolderDialog();
             if (!folder) return;
+            const latest = useAppStore.getState();
+            if (
+              latest.activeTabId !== state.activeTabId ||
+              latest.comparisonContextVersion !==
+                state.comparisonContextVersion ||
+              latest.selectedPaths !== state.selectedPaths
+            )
+              return;
             await onRunOperation({
               kind,
               sourceSide: paneSide,
@@ -175,46 +193,68 @@ export function ComparisonView({
   );
 
   return (
-    <div className="flex gap-2 h-full">
-      <div className="flex-1 min-w-0">
-        <ComparisonPane
+    <div className="flex flex-col h-full min-h-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
+      <div className="grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] border-b border-gray-200">
+        <PaneHeader
           side="left"
-          flatItems={flatItems}
-          scrollRef={leftRef}
-          virtualizer={leftVirtualizer}
-          rowHeight={rowHeight}
-          columnWidths={columnWidths}
-          selectedPaths={selectedPaths}
-          onScroll={onLeftScroll}
-          onToggle={toggleExpanded}
-          onColumnResize={setColumnWidths}
-          onFileDoubleClick={handleFileDoubleClick}
-          onSelect={onSelect}
-          onClearSelection={clearSelection}
-          onRowMouseDown={onRowMouseDownFor("left")}
-          isDropTarget={dropTargetSide === "left"}
-          onContextMenu={onContextMenu}
+          path={leftPath ?? ""}
+          itemKind="folder"
+          onPathCommit={(path) => onPathCommit("left", path)}
+          onPick={() => onPick("left")}
+          disabled={disabled}
+        />
+        <div className="bg-gray-200" />
+        <PaneHeader
+          side="right"
+          path={rightPath ?? ""}
+          itemKind="folder"
+          onPathCommit={(path) => onPathCommit("right", path)}
+          onPick={() => onPick("right")}
+          disabled={disabled}
         />
       </div>
-      <div className="flex-1 min-w-0">
-        <ComparisonPane
-          side="right"
-          flatItems={flatItems}
-          scrollRef={rightRef}
-          virtualizer={rightVirtualizer}
-          rowHeight={rowHeight}
-          columnWidths={columnWidths}
-          selectedPaths={selectedPaths}
-          onScroll={onRightScroll}
-          onToggle={toggleExpanded}
-          onColumnResize={setColumnWidths}
-          onFileDoubleClick={handleFileDoubleClick}
-          onSelect={onSelect}
-          onClearSelection={clearSelection}
-          onRowMouseDown={onRowMouseDownFor("right")}
-          isDropTarget={dropTargetSide === "right"}
-          onContextMenu={onContextMenu}
-        />
+      <div className="grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] flex-1 min-h-0">
+        <div className="min-w-0 min-h-0">
+          <ComparisonPane
+            side="left"
+            flatItems={flatItems}
+            scrollRef={leftRef}
+            virtualizer={leftVirtualizer}
+            rowHeight={rowHeight}
+            columnWidths={columnWidths}
+            selectedPaths={selectedPaths}
+            onScroll={onLeftScroll}
+            onToggle={toggleExpanded}
+            onColumnResize={setColumnWidths}
+            onFileDoubleClick={handleFileDoubleClick}
+            onSelect={onSelect}
+            onClearSelection={clearSelection}
+            onRowMouseDown={onRowMouseDownFor("left")}
+            isDropTarget={dropTargetSide === "left"}
+            onContextMenu={onContextMenu}
+          />
+        </div>
+        <div className="bg-gray-100" />
+        <div className="min-w-0 min-h-0">
+          <ComparisonPane
+            side="right"
+            flatItems={flatItems}
+            scrollRef={rightRef}
+            virtualizer={rightVirtualizer}
+            rowHeight={rowHeight}
+            columnWidths={columnWidths}
+            selectedPaths={selectedPaths}
+            onScroll={onRightScroll}
+            onToggle={toggleExpanded}
+            onColumnResize={setColumnWidths}
+            onFileDoubleClick={handleFileDoubleClick}
+            onSelect={onSelect}
+            onClearSelection={clearSelection}
+            onRowMouseDown={onRowMouseDownFor("right")}
+            isDropTarget={dropTargetSide === "right"}
+            onContextMenu={onContextMenu}
+          />
+        </div>
       </div>
       <ContextMenu state={menu} onClose={closeMenu} />
     </div>

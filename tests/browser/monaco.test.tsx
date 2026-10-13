@@ -10,6 +10,7 @@ import { useAppStore, type FileTabBuffer } from "../../src/stores/appStore";
 vi.mock("../../src/lib/persistence", () => ({
   savePaths: vi.fn(),
   saveComparisonMode: vi.fn(),
+  saveWordWrap: vi.fn(),
 }));
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 let host: HTMLDivElement | null = null;
@@ -70,6 +71,19 @@ describe("real Monaco merge behavior", () => {
     expect(ed.getValue()).toBe("a\nb\n");
   });
   it("retains the document model and undo through a tab unmount/remount", async () => {
+    useAppStore.setState({
+      tabs: [
+        {
+          id: "browser-tab",
+          kind: "file-compare",
+          leftFilePath: "/a",
+          rightFilePath: "",
+          displayName: "a",
+        },
+      ],
+      activeTabId: "browser-tab",
+      operating: false,
+    });
     const buf: FileTabBuffer = {
       documentId: "browser-doc",
       revision: 0,
