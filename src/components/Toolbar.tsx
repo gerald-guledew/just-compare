@@ -1,5 +1,4 @@
 import type { ComparisonMode } from "../types";
-import { useEffect, useState } from "react";
 import type { OperationKind } from "../hooks/useFolderOps";
 import type { Side } from "../stores/appStore";
 
@@ -10,11 +9,7 @@ interface ToolbarProps {
   mode: ComparisonMode;
   onModeChange: (mode: ComparisonMode) => void;
   selectionSize: number;
-  onPickLeft: () => void;
-  onPickRight: () => void;
   onCompare: () => void;
-  onCommitLeft: (path: string | null) => void;
-  onCommitRight: (path: string | null) => void;
   onAction: (
     kind: OperationKind,
     sourceSide: Side,
@@ -30,11 +25,7 @@ export function Toolbar({
   mode,
   onModeChange,
   selectionSize,
-  onPickLeft,
-  onPickRight,
   onCompare,
-  onCommitLeft,
-  onCommitRight,
   onAction,
   onDelete,
 }: ToolbarProps) {
@@ -42,73 +33,38 @@ export function Toolbar({
   const canAct = selectionSize > 0 && !comparing;
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-2 border-b border-gray-200 bg-white">
-      {/* Row 1: path inputs + Compare */}
-      <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 border-b border-gray-200 bg-white">
+      <div className="flex items-center gap-2 shrink-0">
         <button
-          onClick={onPickLeft}
-          disabled={comparing}
-          className="shrink-0 px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Left Folder
-        </button>
-        <PathInput
-          value={leftPath}
-          disabled={comparing}
-          ariaLabel="Left folder path"
-          onCommit={onCommitLeft}
-        />
-
-        <div className="w-px h-6 bg-gray-200 shrink-0" />
-
-        <button
-          onClick={onPickRight}
-          disabled={comparing}
-          className="shrink-0 px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Right Folder
-        </button>
-        <PathInput
-          value={rightPath}
-          disabled={comparing}
-          ariaLabel="Right folder path"
-          onCommit={onCommitRight}
-        />
-
-        <div className="w-px h-6 bg-gray-200 shrink-0" />
-
-        <button
+          type="button"
           onClick={onCompare}
           disabled={!canCompare}
-          className="shrink-0 px-4 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="shrink-0 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {comparing ? "Comparing…" : "Compare"}
         </button>
-      </div>
-
-      {/* Row 2: action buttons */}
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-xs">
+        <label className="flex items-center gap-1.5 text-xs text-gray-600">
           Comparison:{" "}
           <select
             aria-label="Comparison mode"
             disabled={comparing}
             value={mode}
+            title={
+              mode === "Quick"
+                ? "Size and timestamp; checks bytes when equal-sized files have different timestamps."
+                : "Checks file contents regardless of timestamp."
+            }
             onChange={(e) =>
               onModeChange(e.target.value === "Verified" ? "Verified" : "Quick")
             }
-            className="border rounded px-2 py-1"
+            className="border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40"
           >
             <option value="Quick">Quick</option>
             <option value="Verified">Verified</option>
           </select>
         </label>
-        <span className="text-xs text-gray-500">
-          {mode === "Quick"
-            ? "Size and timestamp; checks bytes when equal-sized files have different timestamps."
-            : "Checks file contents regardless of timestamp."}
-        </span>
       </div>
+      <div className="w-px h-5 bg-gray-200" aria-hidden="true" />
       <ActionGroup canAct={canAct} onAction={onAction} onDelete={onDelete} />
     </div>
   );
@@ -227,52 +183,5 @@ function ActionButton({
       <span>{label}</span>
       {arrow === "right" && <span aria-hidden>{"▶"}</span>}
     </button>
-  );
-}
-
-function PathInput({
-  value,
-  disabled,
-  ariaLabel,
-  onCommit,
-}: {
-  value: string | null;
-  disabled: boolean;
-  ariaLabel: string;
-  onCommit: (path: string | null) => void;
-}) {
-  const [draft, setDraft] = useState(value ?? "");
-  useEffect(() => {
-    setDraft(value ?? "");
-  }, [value]);
-
-  const commit = () => {
-    const trimmed = draft.trim();
-    const next = trimmed === "" ? null : trimmed;
-    if (next === value) return;
-    onCommit(next);
-  };
-
-  return (
-    <input
-      type="text"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.currentTarget.blur();
-        } else if (e.key === "Escape") {
-          setDraft(value ?? "");
-          e.currentTarget.blur();
-        }
-      }}
-      onBlur={commit}
-      disabled={disabled}
-      spellCheck={false}
-      placeholder="None"
-      className="flex-1 min-w-0 px-2 py-1 text-sm text-gray-700 font-mono bg-white border border-gray-200 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-400"
-      aria-label={ariaLabel}
-      title={value ?? ""}
-    />
   );
 }

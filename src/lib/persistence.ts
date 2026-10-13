@@ -4,6 +4,7 @@ import { load, type Store } from "@tauri-apps/plugin-store";
 const STORE_FILE = "settings.json";
 const KEY_LEFT = "leftPath";
 const KEY_RIGHT = "rightPath";
+const KEY_WORD_WRAP = "wordWrap";
 
 let storePromise: Promise<Store> | null = null;
 
@@ -43,5 +44,16 @@ export async function loadComparisonMode(): Promise<ComparisonMode> {
 export async function saveComparisonMode(mode: ComparisonMode): Promise<void> {
   const store = await getStore();
   await store.set("comparisonMode", mode);
+  await store.save();
+}
+
+export async function loadWordWrap(): Promise<boolean> {
+  const wordWrap = await (await getStore()).get<unknown>(KEY_WORD_WRAP);
+  return typeof wordWrap === "boolean" ? wordWrap : false;
+}
+
+export async function saveWordWrap(wordWrap: boolean): Promise<void> {
+  const store = await getStore();
+  await store.set(KEY_WORD_WRAP, wordWrap);
   await store.save();
 }

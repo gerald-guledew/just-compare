@@ -2,6 +2,10 @@
 
 JustCompare compares folders and UTF-8 files with React 19, TypeScript, Zustand, Tauri v2, Rust, and Monaco. Rust owns filesystem access; the frontend uses typed wrappers in `src/lib/tauri.ts`. Settings use the Tauri store plugin.
 
+## Development status
+
+The 0.1.0 source baseline includes folder comparison, file diffing and editing, block merges, version-aware saves, and copy/move/delete operations. The current workspace starts with a neutral **Compare** tab and accepts either files or folders directly. General-user installers, signing, broader native platform acceptance, and webview security hardening remain outstanding. Recorded validation and its limits are in [VALIDATION.md](VALIDATION.md).
+
 ## Source layout
 
 - `src/components`: folder panes, toolbar, dialogs, tabs, lazy file comparison view, Monaco panes.
@@ -19,9 +23,21 @@ Quick is the persisted default. Size differences mean Modified. Matching sizes a
 
 The result envelope contains entries, completed mode, and warnings. Frontend requests capture roots, mode, and generation. Changing roots or mode clears results; outdated completions are discarded. Status counts distinguish metadata matches from verified identical files.
 
-The app opens directly to the comparison workspace, with no welcome screen.
+The app opens with one neutral **Compare** tab and lightweight left and right panels. Shared path headers accept a picker selection, pasted path, or native drop. Rust checks the selected path's metadata to distinguish a regular file from a folder, rejecting missing and special paths. The first valid item changes that tab to the corresponding comparison type in place. The other side must use the same type.
+
+**+** adds an independent neutral tab. Each folder tab snapshots its roots, results, mode, expansion, selection, warnings, and errors while the active folder remains available through existing store selectors. Scroll offsets are cached per live folder tab and root pair. A separate tab lifecycle version rejects path checks from closed, replaced, or switched-away tabs. Folder scan generations also capture the active tab and comparison context. Tab changes are locked during mutating filesystem batches. Closing the last tab creates one blank comparison. Startup restores mode and wrapping preferences, with no automatic path selection or scans.
+
+Folder headers use the same compact path-field layout as file headers. Quick/Verified sits beside Compare, and folder operations remain in the folder toolbar. File-only controls appear after selecting a file.
 
 Shared scanning reads metadata once per entry and reports traversal errors. A set deduplicates keys; a parent-to-children index replaces repeated full-map searches. Sorting remains directory-first and case-insensitive. Descendant difference flags are computed once by Rust. The frontend flattens expanded rows and virtualizes their rendering.
+
+## File comparison
+
+Selecting a file in a neutral tab opens the lazy file comparison view with independent left and right paths. Each pane accepts a native file-picker selection, a pasted path, or a file dropped from Finder or Explorer. Files may have different names and locations. Loading both documents starts the existing debounced text diff automatically; folder Quick/Verified modes do not apply to the text editor.
+
+Double-clicking a file in folder results opens the pair with matching relative paths. Either pane can then select a different file. Changing a pane's file confirms discarding any unsaved edits on that side. File comparison uses the same document, diff, merge, and save lifecycle regardless of how the tab was opened.
+
+The file tab's **Wrap Text** toggle (Alt+Z) controls both editors and persists through the Tauri settings store. Wrapping defaults to off. Alignment zones use measured line heights, including wrapped continuations, and recalculate when the editors resize. Merge arrows and minimap markers follow actual editor positions. Wrapping changes the display without editing document text.
 
 ## Filesystem operations
 
@@ -61,6 +77,7 @@ The file comparison view, Monaco setup, and local workers load on the first file
 | `diff_text(left, right, tab_id, generation)`              | FileDiffResult                                |
 | `read_file_text(path)`                                    | Validated document snapshot                   |
 | `file_version(path)`                                      | Disk token or missing-file null               |
+| `comparison_path_kind(path)`                              | Regular file or folder kind, or access error  |
 | `save_document(target_path, text, bom, expected_version)` | Saved version or structured conflict          |
 | `start_fs_op`, `cancel_fs_op`, `end_fs_op`                | Batch reservation and cancellation            |
 | `plan_fs_batch`, `execute_fs_item`                        | Preflight plan and recoverable replacement    |

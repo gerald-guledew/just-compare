@@ -4,8 +4,7 @@ import type * as monaco from "monaco-editor";
 import type { DiffLine } from "../types";
 import { spliceLines } from "../lib/splice";
 import type { YellowRange } from "../lib/splice";
-import type { BufferEdit, Side } from "../stores/appStore";
-import { buildViewZones } from "../lib/monaco/buildViewZones";
+import { useAppStore, type BufferEdit, type Side } from "../stores/appStore";
 import { buildDecorations } from "../lib/monaco/buildDecorations";
 import { languageFromPath } from "../lib/monaco/languageFromExt";
 import { MONACO_LIGHT_THEME } from "../lib/monaco/setup";
@@ -18,6 +17,7 @@ interface MonacoDiffPaneProps {
   lines: DiffLine[];
   yellowRanges: YellowRange[];
   readOnly: boolean;
+  wordWrap?: boolean;
   onEditorReady: (
     editor: monaco.editor.IStandaloneCodeEditor,
     monacoApi: typeof monaco,
@@ -31,7 +31,7 @@ interface MonacoDiffPaneProps {
 
 /** Convert Monaco's IModelContentChange[] (one event may contain many changes,
  *  e.g. find-and-replace-all or multi-cursor) into a single BufferEdit suitable
- *  for shiftYellowRanges. Returns null if there are zero or >1 changes —
+ *  for shiftYellowRanges. Returns null if there are zero or >1 changes,
  *  callers drop yellow ranges in that case rather than risk a wrong shift. */
 function changesToBufferEdit(
   changes: readonly monaco.editor.IModelContentChange[],
@@ -65,6 +65,7 @@ export function MonacoDiffPane({
   lines,
   yellowRanges,
   readOnly,
+  wordWrap = false,
   onEditorReady,
   onEditorDispose,
   onScroll,
@@ -79,7 +80,6 @@ export function MonacoDiffPane({
   const [editor, setEditor] =
     useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [monacoApi, setMonacoApi] = useState<typeof monaco | null>(null);
-  const viewZoneIdsRef = useRef<string[]>([]);
   const decorationIdsRef = useRef<string[]>([]);
   // Set true around any external setValue (reload-from-disk, prop refresh) so
   // the resulting onDidChangeModelContent event doesn't loop back into the
@@ -120,6 +120,10 @@ export function MonacoDiffPane({
     ed.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => {
       onRequestSaveRef.current?.();
     });
+    ed.addCommand(m.KeyMod.Alt | m.KeyCode.KeyZ, () => {
+      const state = useAppStore.getState();
+      state.setWordWrap(!state.wordWrap);
+    });
 
     const dispose = ed.onDidDispose(() => {
       scrollSub.dispose();
@@ -132,7 +136,7 @@ export function MonacoDiffPane({
 
   // Sync model text. Typed edits update the store, which feeds back here, but
   // by the time React re-renders the model already holds the typed value, so
-  // model.getValue() === text and we early-return — no setValue, no
+  // model.getValue() === text and we early-return, with no setValue or
   // change-event loop. setValue only fires on external resets (reload-from-
   // disk, file path change), where we set suppressEditRef so the resulting
   // onDidChangeModelContent isn't echoed back into the store.
@@ -159,27 +163,6 @@ export function MonacoDiffPane({
       monacoApi.editor.setModelLanguage(model, lang);
     }
   }, [editor, monacoApi, path]);
-
-  // Apply view zones (alignment padding). Driven by `lines` only — once typing
-  // means `text` updates per-keystroke, including it here would re-run on every
-  // character (zones are O(lines)). The diff debounce + `lines` dep already
-  // refresh zones whenever the diff settles.
-  useEffect(() => {
-    if (!editor) return;
-    const zones = buildViewZones(lines, side);
-    editor.changeViewZones((accessor) => {
-      for (const id of viewZoneIdsRef.current) accessor.removeZone(id);
-      viewZoneIdsRef.current = zones.map((z) => {
-        const domNode = document.createElement("div");
-        domNode.className = "diff-view-zone";
-        return accessor.addZone({
-          afterLineNumber: z.afterLineNumber,
-          heightInLines: z.heightInLines,
-          domNode,
-        });
-      });
-    });
-  }, [editor, lines, side]);
 
   // Apply decorations (red bg, yellow bg, inline word highlights). Same
   // reasoning as view zones: drive by lines/yellowRanges, not text.
@@ -208,7 +191,8 @@ export function MonacoDiffPane({
         scrollBeyondLastLine: false,
         renderLineHighlight: "none",
         automaticLayout: true,
-        wordWrap: "off",
+        wordWrap: wordWrap ? "on" : "off",
+        wrappingStrategy: "advanced",
         fontSize: 13,
         lineNumbersMinChars: 4,
         glyphMargin: false,

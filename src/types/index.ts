@@ -7,6 +7,8 @@ export interface FileEntry {
   children: FileEntry[] | null;
 }
 
+export type ComparisonPathKind = "file" | "folder";
+
 export type ComparisonStatus =
   | "Identical"
   | "MetadataMatch"

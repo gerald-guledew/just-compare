@@ -13,7 +13,11 @@ import {
 } from "../lib/tauri";
 import { checkOpenDocuments } from "../lib/documents";
 import { refreshComparison } from "./useComparison";
-import { useAppStore, type Side } from "../stores/appStore";
+import {
+  useAppStore,
+  selectActiveFolderTab,
+  type Side,
+} from "../stores/appStore";
 import type { ComparisonEntry, FileEntry } from "../types";
 import type {
   ConflictRequest,
@@ -177,6 +181,7 @@ export function useFolderOps() {
   const runOperation = useCallback(
     async (spec: OperationSpec) => {
       const state = useAppStore.getState();
+      if (!selectActiveFolderTab(state)) return;
       if (!state.leftPath || !state.rightPath || !state.selectedPaths.size)
         return;
       if (spec.targetSide === spec.sourceSide) return;
@@ -251,6 +256,7 @@ export function useFolderOps() {
   const runDelete = useCallback(
     async (side: Side) => {
       const state = useAppStore.getState();
+      if (!selectActiveFolderTab(state)) return;
       if (!state.leftPath || !state.rightPath) return;
       const root = side === "left" ? state.leftPath : state.rightPath;
       const selected = [...state.selectedPaths].filter((p) =>

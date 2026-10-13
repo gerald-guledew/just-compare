@@ -62,12 +62,20 @@ export function StatusBar({ comparison }: StatusBarProps) {
   const activeTabId = useAppStore((s) => s.activeTabId);
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
+  if (activeTab?.kind === "compare") {
+    return (
+      <div className="flex items-center h-7 px-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
+        Choose two files or two folders to compare
+      </div>
+    );
+  }
+
   if (activeTab && activeTab.kind === "file-compare") {
     return (
       <div className="flex items-center h-7 px-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-500 truncate">
-        {activeTab.leftFilePath}
+        {activeTab.leftFilePath || "Choose a left file"}
         <span className="mx-1 text-gray-400">{"\u2194"}</span>
-        {activeTab.rightFilePath}
+        {activeTab.rightFilePath || "Choose a right file"}
       </div>
     );
   }

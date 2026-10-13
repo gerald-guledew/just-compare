@@ -18,5 +18,10 @@ export function FolderDropTarget({
   const side = useOsFileDrop(areaRef, onDropFolder);
   if (!side) return null;
   // Matches the two panes inside the padded content area.
-  return <DropTargetOverlay side={side} layout="inset-2 grid-cols-2 gap-2" />;
+  return (
+    <DropTargetOverlay
+      side={side}
+      layout="inset-2 grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)]"
+    />
+  );
 }

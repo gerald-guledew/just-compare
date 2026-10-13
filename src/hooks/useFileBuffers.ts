@@ -21,7 +21,7 @@ export function useFileBuffers(
       ["left", leftPath],
       ["right", rightPath],
     ] as const) {
-      if (state.fileTabs[tabId]?.[side]) continue;
+      if (!path || state.fileTabs[tabId]?.[side]) continue;
       void readFileText(path)
         .then((r) => {
           if (!cancelled)

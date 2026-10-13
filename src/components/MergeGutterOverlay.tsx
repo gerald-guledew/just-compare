@@ -46,7 +46,7 @@ export function MergeGutterOverlay({
   onMerge,
 }: MergeGutterOverlayProps) {
   // Re-render on every scroll/layout tick from either editor. Using a tick
-  // counter keeps state changes minimal — actual positions are recomputed in
+  // counter keeps state changes minimal. Actual positions are recomputed in
   // render from the editor APIs.
   const [, setTick] = useState(0);
   const bump = () => setTick((t) => (t + 1) & 0xfffff);
@@ -86,10 +86,10 @@ export function MergeGutterOverlay({
     };
   });
 
-  // Layout matches FileCompareView's `1fr_36px_1fr` grid so the middle cell
+  // Layout matches FileCompareView's three-column grid so the middle cell
   // lines up exactly with the dedicated merge gutter between the two editors.
   return (
-    <div className="absolute inset-0 grid grid-cols-[1fr_36px_1fr] pointer-events-none">
+    <div className="absolute inset-0 grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] pointer-events-none">
       <div />
       <div className="relative">
         {positions.map(
@@ -137,9 +137,7 @@ function ArrowButton({
   onClick: () => void;
 }) {
   const label =
-    direction === "leftToRight"
-      ? "Copy block to right"
-      : "Copy block to left";
+    direction === "leftToRight" ? "Copy block to right" : "Copy block to left";
   return (
     <button
       type="button"

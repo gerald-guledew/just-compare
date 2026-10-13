@@ -53,3 +53,23 @@ Before distributing a platform installer, verify production worker/IPC/CSP behav
 Recovery handles ordinary failures per item. Completed batch items remain completed when a later item fails. Deletion is permanent and can be partial after cancellation or IO errors. There is no durable crash or power-loss recovery journal, no exclusive filesystem locking, and no guarantee of preserving ACLs or extended attributes.
 
 Quick metadata matches do not prove byte equality. Editing supports validated UTF-8 text with optional BOM, up to 10 MB per file. Production CSP is currently disabled; see [SECURITY.md](../SECURITY.md) and [source-publication readiness](PUBLIC_READINESS.md).
+
+## Direct file startup validation, 13 October 2026
+
+The working-tree change adds a visible Compare Files action and independent file selection without first comparing folders. Frontend unit tests passed (86), Chromium browser tests passed (13), and the production frontend build passed with notice verification. New regressions cover independent filenames, blank-tab reuse, ordered-pair identity, picker cancellation, loading and read-error recovery, real Monaco diff decorations, and preservation of existing folder state.
+
+A debug macOS `.app` built from the changed public checkout with production assets passed a limited native smoke test: launch, blank file comparison startup, native file-picker cancellation, selection of two differently named UTF-8 Markdown files, and highlighted side-by-side diff rendering. The selected files were not edited or saved. The build was opened from the workspace. This limited check does not complete the installer or cross-platform acceptance gates above. Rust commands were unchanged; the native build passed, but the Rust test suite was not rerun for this frontend change.
+
+## Word wrapping validation, 13 October 2026
+
+The subsequent working-tree change adds a shared Wrap Text toggle, Alt+Z shortcut, and persisted preference. All 107 frontend unit tests and 15 Chromium browser tests passed, along with the frontend production build and debug native app build. Real Monaco browser coverage verifies unequal wrapped paragraph and URL heights, inserted/deleted lines at the beginning and EOF, equal row positions and content heights, pane resizing, minimap marker positions, both-pane shortcut behavior, unchanged document text, and retained undo history. Pure alignment tests also cover implicit trailing empty lines.
+
+The updated workspace macOS app was reopened with the same two Markdown files. Enabling Wrap Text visibly reflowed both panes within their widths, with Save remaining disabled. No file edits or saves were performed. This remains a limited native smoke test; the wider acceptance gates above remain outstanding.
+
+## Unified comparison startup validation, 13 October 2026
+
+The next working-tree change starts with one neutral Compare tab, shared left/right path panels, and a compact plus button for independent comparisons. The first valid path selects file or folder mode. Folder Comparison mode sits beside Compare, while file controls stay specific to file tabs. Backend metadata inspection rejects missing and special paths before choosing a mode.
+
+All 127 frontend unit tests, 27 Chromium browser tests, and 48 Rust tests passed; the opt-in workload benchmark remained ignored. The production frontend build, debug macOS app build, strict Rust Clippy, Rust formatting, and changed-source formatting checks passed. Browser coverage confirms no editor loading, file reads, or scans on blank startup; left-first and right-first selection; picker cancellation; pasted paths and native-drop event handling; mixed-type rejection; independent folder state; stale selection/scan rejection; closing the final tab; file model preservation; wrapping; and synchronized folder scroll restoration/reset.
+
+The native macOS smoke test verified the single neutral startup screen, path entry switching into folder mode, the adjacent Comparison/Compare controls, a Verified comparison of synthetic folders, a new independent tab, the file/folder picker menu, native file selection switching into file mode, and closing both comparisons back to one blank tab. An existing Markdown file was read for the file preview without edits or saves. The updated workspace app was left on the blank startup screen. These checks remain limited native evidence, with the broader platform and installer gates above still outstanding.

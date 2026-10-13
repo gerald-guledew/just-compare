@@ -4,12 +4,14 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import type * as monaco from "monaco-editor";
 import { useBufferDiff } from "../hooks/useBufferDiff";
 import { useFileBuffers } from "../hooks/useFileBuffers";
+import { useDiffAlignment } from "../hooks/useDiffAlignment";
 import { useOsFileDrop } from "../hooks/useOsFileDrop";
 import { MonacoDiffPane, applyMonacoEdit } from "./MonacoDiffPane";
 import { MergeGutterOverlay } from "./MergeGutterOverlay";
 import { PaneHeader } from "./PaneHeader";
 import { DiffMinimap } from "./DiffMinimap";
 import { DropTargetOverlay } from "./DropTargetOverlay";
+import { openFileDialog } from "../lib/tauri";
 import { computeDiffBlocks, type DiffBlock } from "../lib/diffBlocks";
 import { useAppStore, type BufferEdit, type Side } from "../stores/appStore";
 
@@ -17,12 +19,18 @@ interface FileCompareViewProps {
   leftFilePath: string;
   rightFilePath: string;
   tabId: string;
+  onPathCommit?: (side: Side, path: string) => Promise<boolean>;
+  onPickFile?: (side: Side) => void;
+  pathsDisabled?: boolean;
 }
 
 export function FileCompareView({
   leftFilePath,
   rightFilePath,
   tabId,
+  onPathCommit,
+  onPickFile,
+  pathsDisabled = false,
 }: FileCompareViewProps) {
   const { save, reload } = useFileBuffers(tabId, leftFilePath, rightFilePath);
 
@@ -30,6 +38,7 @@ export function FileCompareView({
   const applyBufferMerge = useAppStore((s) => s.applyBufferMerge);
   const setFileTabBufferText = useAppStore((s) => s.setFileTabBufferText);
   const setTabFilePath = useAppStore((s) => s.setTabFilePath);
+  const wordWrap = useAppStore((s) => s.wordWrap);
 
   const leftBuf = tab?.left ?? null;
   const rightBuf = tab?.right ?? null;
@@ -65,6 +74,7 @@ export function FileCompareView({
     useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [rightEditor, setRightEditor] =
     useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+  useDiffAlignment(leftEditor, rightEditor, lines, wordWrap);
 
   const [scrollMetrics, setScrollMetrics] = useState({
     scrollTop: 0,
@@ -172,7 +182,7 @@ export function FileCompareView({
     (direction: "leftToRight" | "rightToLeft", block: DiffBlock) => {
       // If a diff recompute is in flight (user just typed), block.startLine /
       // endLine were computed from a stale `lines` snapshot and won't match
-      // the current editor model — splicing now would corrupt the buffer.
+      // the current editor model. Splicing now would corrupt the buffer.
       // Reject silently; the user can re-click after the diff settles (~50ms).
       if (loading) return;
       const monacoApi = monacoRef.current;
@@ -247,19 +257,21 @@ export function FileCompareView({
 
   const commitPath = useCallback(
     async (side: Side, newPath: string) => {
+      if (onPathCommit) return onPathCommit(side, newPath);
       const current = side === "left" ? leftFilePath : rightFilePath;
-      if (newPath === current) return;
+      if (newPath === current) return true;
       const buf = useAppStore.getState().fileTabs[tabId]?.[side];
       if (buf?.dirty) {
         const ok = await confirm(
           `Discard unsaved changes on the ${side} side?`,
           { title: "Change file", kind: "warning" },
         );
-        if (!ok) return;
+        if (!ok) return false;
       }
       setTabFilePath(tabId, side, newPath);
+      return true;
     },
-    [tabId, leftFilePath, rightFilePath, setTabFilePath],
+    [tabId, leftFilePath, rightFilePath, setTabFilePath, onPathCommit],
   );
 
   // Dropping a file from Finder/Explorer on a pane compares that file instead.
@@ -269,6 +281,15 @@ export function FileCompareView({
     [commitPath],
   );
   const dropSide = useOsFileDrop(panesRef, onDropFile);
+
+  const pickFile = async (side: Side) => {
+    if (onPickFile) {
+      onPickFile(side);
+      return;
+    }
+    const path = await openFileDialog();
+    if (path) await commitPath(side, path);
+  };
 
   const scrollToOffset = useCallback((scrollTop: number) => {
     const left = leftEditorRef.current;
@@ -287,31 +308,21 @@ export function FileCompareView({
     refreshMetrics();
   }, [lines, refreshMetrics]);
 
-  const initializing = (!leftBuf && !leftError) || (!rightBuf && !rightError);
-
-  if (initializing || (loading && !result)) {
-    return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        {"Loading diff…"}
-      </div>
-    );
-  }
-
-  if (error && !result) {
-    return (
-      <div className="flex items-center justify-center h-full text-red-600">
-        Error: {error}
-      </div>
-    );
-  }
-
-  if (!result) return null;
-
   const showErrorRow = !!(leftError || rightError);
   const showFooterRow = showErrorRow;
 
   return (
     <div className="flex flex-col h-full gap-1">
+      {error && (
+        <div role="alert" className="p-2 bg-red-50 text-red-700 text-sm">
+          Error: {error}
+        </div>
+      )}
+      {leftBuf && rightBuf && loading && !result && (
+        <div role="status" className="px-2 text-xs text-gray-500">
+          Comparing files…
+        </div>
+      )}
       {(leftBuf?.operationError || rightBuf?.operationError) && (
         <div role="alert" className="p-2 bg-red-50 text-red-700 text-sm">
           {leftBuf?.operationError ?? rightBuf?.operationError}
@@ -336,6 +347,8 @@ export function FileCompareView({
       <div className="flex gap-2 flex-1 min-h-0">
         <DiffMinimap
           lines={lines}
+          leftEditor={leftEditor}
+          rightEditor={rightEditor}
           totalContentHeight={scrollMetrics.contentHeight}
           scrollTop={scrollMetrics.scrollTop}
           viewportHeight={scrollMetrics.viewportHeight}
@@ -348,14 +361,16 @@ export function FileCompareView({
           {dropSide && (
             <DropTargetOverlay
               side={dropSide}
-              layout="inset-0 grid-cols-[1fr_36px_1fr]"
+              layout="inset-0 grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)]"
             />
           )}
-          <div className="grid grid-cols-[1fr_36px_1fr] border-b border-gray-200">
+          <div className="grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] border-b border-gray-200">
             <PaneHeader
               side="left"
               path={leftFilePath}
-              onPathCommit={(p) => void commitPath("left", p)}
+              onPathCommit={(p) => commitPath("left", p)}
+              onPick={onPickFile ? () => onPickFile("left") : undefined}
+              disabled={pathsDisabled}
               isDirty={leftBuf?.dirty ?? false}
               hasError={!!leftError}
               onSave={leftBuf ? () => void save("left") : undefined}
@@ -364,7 +379,9 @@ export function FileCompareView({
             <PaneHeader
               side="right"
               path={rightFilePath}
-              onPathCommit={(p) => void commitPath("right", p)}
+              onPathCommit={(p) => commitPath("right", p)}
+              onPick={onPickFile ? () => onPickFile("right") : undefined}
+              disabled={pathsDisabled}
               isDirty={rightBuf?.dirty ?? false}
               hasError={!!rightError}
               onSave={rightBuf ? () => void save("right") : undefined}
@@ -372,7 +389,7 @@ export function FileCompareView({
           </div>
 
           {showErrorRow && (
-            <div className="grid grid-cols-[1fr_36px_1fr] border-b border-red-200">
+            <div className="grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] border-b border-red-200">
               <ErrorCell message={leftError} />
               <div className="bg-gray-200" />
               <ErrorCell message={rightError} />
@@ -380,7 +397,7 @@ export function FileCompareView({
           )}
 
           <div className="relative flex-1 min-h-0">
-            <div className="absolute inset-0 grid grid-cols-[1fr_36px_1fr]">
+            <div className="absolute inset-0 grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)]">
               {leftBuf ? (
                 <MonacoDiffPane
                   side="left"
@@ -390,6 +407,7 @@ export function FileCompareView({
                   lines={lines}
                   yellowRanges={leftBuf.yellowRanges}
                   readOnly={false}
+                  wordWrap={wordWrap}
                   onEditorReady={handleLeftReady}
                   onEditorDispose={handleLeftDispose}
                   onScroll={onLeftScroll}
@@ -398,7 +416,12 @@ export function FileCompareView({
                   onRequestSave={onRequestSave}
                 />
               ) : (
-                <MissingFilePlaceholder />
+                <FilePlaceholder
+                  side="left"
+                  path={leftFilePath}
+                  hasError={!!leftError}
+                  onPick={() => void pickFile("left")}
+                />
               )}
               <div className="bg-gray-100" />
               {rightBuf ? (
@@ -410,6 +433,7 @@ export function FileCompareView({
                   lines={lines}
                   yellowRanges={rightBuf.yellowRanges}
                   readOnly={false}
+                  wordWrap={wordWrap}
                   onEditorReady={handleRightReady}
                   onEditorDispose={handleRightDispose}
                   onScroll={onRightScroll}
@@ -418,7 +442,12 @@ export function FileCompareView({
                   onRequestSave={onRequestSave}
                 />
               ) : (
-                <MissingFilePlaceholder />
+                <FilePlaceholder
+                  side="right"
+                  path={rightFilePath}
+                  hasError={!!rightError}
+                  onPick={() => void pickFile("right")}
+                />
               )}
             </div>
             <MergeGutterOverlay
@@ -431,7 +460,7 @@ export function FileCompareView({
           </div>
 
           {showFooterRow && (
-            <div className="grid grid-cols-[1fr_36px_1fr] border-t border-gray-200">
+            <div className="grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] border-t border-gray-200">
               <FooterCell show={!!leftError} />
               <div className="bg-gray-200" />
               <FooterCell show={!!rightError} />
@@ -443,10 +472,37 @@ export function FileCompareView({
   );
 }
 
-function MissingFilePlaceholder() {
+function FilePlaceholder({
+  side,
+  path,
+  hasError,
+  onPick,
+}: {
+  side: Side;
+  path: string;
+  hasError: boolean;
+  onPick: () => void;
+}) {
   return (
-    <div className="flex items-center justify-center bg-gray-50 text-xs text-gray-400 italic">
-      File does not exist on this side
+    <div className="flex flex-col items-center justify-center gap-3 px-4 bg-gray-50 text-sm text-gray-500 text-center">
+      {path && !hasError ? (
+        <span role="status">Loading {side} file…</span>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={onPick}
+            className="px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+          >
+            Select {side} file
+          </button>
+          <span className="text-xs">
+            {hasError
+              ? "Unable to load this file. Choose another file or correct its path above."
+              : "Choose a file, paste its path above, or drop it here."}
+          </span>
+        </>
+      )}
     </div>
   );
 }

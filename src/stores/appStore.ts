@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import type { ComparisonEntry, ComparisonMode } from "../types";
-import { savePaths, saveComparisonMode } from "../lib/persistence";
+import {
+  savePaths,
+  saveComparisonMode,
+  saveWordWrap,
+} from "../lib/persistence";
 import type { Terminator, YellowRange } from "../lib/splice";
 import { shiftYellowRanges, spliceLines } from "../lib/splice";
 
@@ -10,11 +14,13 @@ export interface ColumnWidths {
 }
 
 export const FOLDER_TAB_ID = "folder";
+export const INITIAL_TAB_ID = "compare";
 
 export type Side = "left" | "right";
 
 export type Tab =
-  | { id: typeof FOLDER_TAB_ID; kind: "folder-compare" }
+  | { id: string; kind: "compare" }
+  | { id: string; kind: "folder-compare" }
   | {
       id: string;
       kind: "file-compare";
@@ -22,6 +28,18 @@ export type Tab =
       rightFilePath: string;
       displayName: string;
     };
+
+export interface FolderTabState {
+  leftPath: string | null;
+  rightPath: string | null;
+  comparison: ComparisonEntry[] | null;
+  comparisonMode: ComparisonMode;
+  error: string | null;
+  comparisonWarnings: string[];
+  expandedPaths: Set<string>;
+  selectedPaths: Set<string>;
+  selectionAnchor: string | null;
+}
 
 export interface SetComparisonOptions {
   preserveExpanded?: boolean;
@@ -70,15 +88,26 @@ function basename(path: string): string {
   return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
-interface AppState {
+function filePairLabel(leftFilePath: string, rightFilePath: string): string {
+  const leftName = basename(leftFilePath);
+  const rightName = basename(rightFilePath);
+  if (!leftName && !rightName) return "File Compare";
+  if (!leftName) return rightName;
+  if (!rightName || leftName === rightName) return leftName;
+  return `${leftName} ↔ ${rightName}`;
+}
+
+export interface AppState {
   leftPath: string | null;
   rightPath: string | null;
   comparison: ComparisonEntry[] | null;
   comparing: boolean;
   operating: boolean;
   comparisonMode: ComparisonMode;
+  wordWrap: boolean;
   comparisonWarnings: string[];
   setComparisonMode: (mode: ComparisonMode) => void;
+  setWordWrap: (wordWrap: boolean) => void;
   error: string | null;
   expandedPaths: Set<string>;
   columnWidths: ColumnWidths;
@@ -88,6 +117,9 @@ interface AppState {
 
   tabs: Tab[];
   activeTabId: string;
+  folderTabs: Record<string, FolderTabState>;
+  comparisonContextVersion: number;
+  tabLifecycleVersion: number;
 
   fileTabs: Record<string, FileTabState>;
   saveConflict: { path: string; message: string } | null;
@@ -113,6 +145,14 @@ interface AppState {
     leftFolder: string,
     rightFolder: string,
     relativePath: string,
+  ) => void;
+  openFilePairTab: (leftFilePath: string, rightFilePath: string) => void;
+  newCompareTab: () => void;
+  selectComparisonPath: (
+    tabId: string,
+    side: Side,
+    path: string,
+    kind: "file" | "folder",
   ) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
@@ -187,6 +227,67 @@ function updateBuffer(
   return { ...tab, [side]: update(buf) };
 }
 
+function emptyFolderState(comparisonMode: ComparisonMode): FolderTabState {
+  return {
+    leftPath: null,
+    rightPath: null,
+    comparison: null,
+    comparisonMode,
+    error: null,
+    comparisonWarnings: [],
+    expandedPaths: new Set<string>(),
+    selectedPaths: new Set<string>(),
+    selectionAnchor: null,
+  };
+}
+
+function folderSnapshot(state: AppState): FolderTabState {
+  return {
+    leftPath: state.leftPath,
+    rightPath: state.rightPath,
+    comparison: state.comparison,
+    comparisonMode: state.comparisonMode,
+    error: state.error,
+    comparisonWarnings: state.comparisonWarnings,
+    expandedPaths: state.expandedPaths,
+    selectedPaths: state.selectedPaths,
+    selectionAnchor: state.selectionAnchor,
+  };
+}
+
+export function selectActiveFolderTab(state: AppState) {
+  return state.tabs.find(
+    (tab): tab is Extract<Tab, { kind: "folder-compare" }> =>
+      tab.id === state.activeTabId && tab.kind === "folder-compare",
+  );
+}
+
+function snapshotFolderTabs(state: AppState): Record<string, FolderTabState> {
+  if (!selectActiveFolderTab(state)) return state.folderTabs;
+  return { ...state.folderTabs, [state.activeTabId]: folderSnapshot(state) };
+}
+
+function activateTab(
+  state: AppState,
+  tab: Tab,
+  folderTabs = snapshotFolderTabs(state),
+): Partial<AppState> {
+  const folder =
+    tab.kind === "folder-compare"
+      ? (folderTabs[tab.id] ?? emptyFolderState(state.comparisonMode))
+      : tab.kind === "compare"
+        ? emptyFolderState(state.comparisonMode)
+        : undefined;
+  return {
+    ...folder,
+    folderTabs,
+    activeTabId: tab.id,
+    comparing: false,
+    comparisonContextVersion: state.comparisonContextVersion + 1,
+    tabLifecycleVersion: state.tabLifecycleVersion + 1,
+  };
+}
+
 export const useAppStore = create<AppState>()((set, get) => ({
   leftPath: null,
   rightPath: null,
@@ -194,6 +295,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   comparing: false,
   operating: false,
   comparisonMode: "Quick",
+  wordWrap: false,
   comparisonWarnings: [],
   setComparisonMode: (mode) => {
     set({
@@ -201,9 +303,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
       comparison: null,
       comparisonWarnings: [],
       selectedPaths: new Set(),
+      selectionAnchor: null,
       comparing: false,
+      comparisonContextVersion: get().comparisonContextVersion + 1,
     });
     saveComparisonMode(mode).catch(console.error);
+  },
+  setWordWrap: (wordWrap) => {
+    set({ wordWrap });
+    saveWordWrap(wordWrap).catch(console.error);
   },
   error: null,
   expandedPaths: new Set<string>(),
@@ -211,8 +319,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectedPaths: new Set<string>(),
   selectionAnchor: null,
 
-  tabs: [{ id: FOLDER_TAB_ID, kind: "folder-compare" }],
-  activeTabId: FOLDER_TAB_ID,
+  tabs: [{ id: INITIAL_TAB_ID, kind: "compare" }],
+  activeTabId: INITIAL_TAB_ID,
+  folderTabs: {},
+  comparisonContextVersion: 0,
+  tabLifecycleVersion: 0,
 
   fileTabs: {},
   saveConflict: null,
@@ -223,6 +334,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
       comparison: null,
       comparisonWarnings: [],
       selectedPaths: new Set(),
+      selectionAnchor: null,
+      expandedPaths: new Set(),
+      error: null,
+      comparing: false,
+      comparisonContextVersion: get().comparisonContextVersion + 1,
     });
     savePaths(path, get().rightPath).catch(console.error);
   },
@@ -232,6 +348,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
       comparison: null,
       comparisonWarnings: [],
       selectedPaths: new Set(),
+      selectionAnchor: null,
+      expandedPaths: new Set(),
+      error: null,
+      comparing: false,
+      comparisonContextVersion: get().comparisonContextVersion + 1,
     });
     savePaths(get().leftPath, path).catch(console.error);
   },
@@ -296,49 +417,138 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }),
 
   openFileCompareTab: (leftFolder, rightFolder, relativePath) => {
-    const leftFilePath = `${leftFolder}/${relativePath}`;
-    const rightFilePath = `${rightFolder}/${relativePath}`;
-    const existing = get().tabs.find(
+    get().openFilePairTab(
+      `${leftFolder}/${relativePath}`,
+      `${rightFolder}/${relativePath}`,
+    );
+  },
+  openFilePairTab: (leftFilePath, rightFilePath) => {
+    const state = get();
+    if (state.operating) return;
+    const existing = state.tabs.find(
       (t) =>
         t.kind === "file-compare" &&
         t.leftFilePath === leftFilePath &&
         t.rightFilePath === rightFilePath,
     );
     if (existing) {
-      set({ activeTabId: existing.id });
+      get().setActiveTab(existing.id);
       return;
     }
+    const active = state.tabs.find((tab) => tab.id === state.activeTabId);
     const newTab: Tab = {
-      id: crypto.randomUUID(),
+      id: active?.kind === "compare" ? active.id : crypto.randomUUID(),
       kind: "file-compare",
       leftFilePath,
       rightFilePath,
-      displayName: basename(relativePath),
+      displayName: filePairLabel(leftFilePath, rightFilePath),
     };
-    set((state) => ({
-      tabs: [...state.tabs, newTab],
-      activeTabId: newTab.id,
-    }));
+    set({
+      ...activateTab(state, newTab),
+      tabs:
+        active?.kind === "compare"
+          ? state.tabs.map((tab) => (tab.id === active.id ? newTab : tab))
+          : [...state.tabs, newTab],
+    });
+  },
+  newCompareTab: () => {
+    const state = get();
+    if (state.operating) return;
+    const tab: Tab = { id: crypto.randomUUID(), kind: "compare" };
+    set({ ...activateTab(state, tab), tabs: [...state.tabs, tab] });
+  },
+  selectComparisonPath: (tabId, side, path, kind) => {
+    const state = get();
+    if (state.operating) return;
+    const tab = state.tabs.find((candidate) => candidate.id === tabId);
+    if (!tab || !path) return;
+    if (kind === "file") {
+      if (tab.kind === "folder-compare") return;
+      if (tab.kind === "file-compare") {
+        get().setTabFilePath(tabId, side, path);
+        return;
+      }
+      const leftFilePath = side === "left" ? path : "";
+      const rightFilePath = side === "right" ? path : "";
+      const fileTab: Tab = {
+        id: tabId,
+        kind: "file-compare",
+        leftFilePath,
+        rightFilePath,
+        displayName: filePairLabel(leftFilePath, rightFilePath),
+      };
+      set({
+        tabs: state.tabs.map((item) => (item.id === tabId ? fileTab : item)),
+      });
+      return;
+    }
+    if (tab.kind === "file-compare") return;
+    const previous =
+      tab.kind === "compare"
+        ? emptyFolderState(state.comparisonMode)
+        : tabId === state.activeTabId
+          ? folderSnapshot(state)
+          : (state.folderTabs[tabId] ?? emptyFolderState(state.comparisonMode));
+    const folder: FolderTabState = {
+      ...previous,
+      [side === "left" ? "leftPath" : "rightPath"]: path,
+      comparison: null,
+      error: null,
+      comparisonWarnings: [],
+      expandedPaths: new Set(),
+      selectedPaths: new Set(),
+      selectionAnchor: null,
+    };
+    const folderTab: Tab = { id: tabId, kind: "folder-compare" };
+    set({
+      ...(tabId === state.activeTabId
+        ? {
+            ...folder,
+            comparing: false,
+            comparisonContextVersion: state.comparisonContextVersion + 1,
+          }
+        : {}),
+      tabs: state.tabs.map((item) => (item.id === tabId ? folderTab : item)),
+      folderTabs: { ...state.folderTabs, [tabId]: folder },
+    });
+    savePaths(folder.leftPath, folder.rightPath).catch(console.error);
   },
   closeTab: (id) => {
-    if (id === FOLDER_TAB_ID) return;
     set((state) => {
+      if (state.operating) return state;
       const idx = state.tabs.findIndex((t) => t.id === id);
       if (idx === -1) return state;
       const nextTabs = state.tabs.filter((t) => t.id !== id);
-      let nextActiveId = state.activeTabId;
-      if (state.activeTabId === id) {
-        nextActiveId = nextTabs[Math.max(0, idx - 1)]?.id ?? FOLDER_TAB_ID;
-      }
       const { [id]: _omit, ...restTabs } = state.fileTabs;
+      const { [id]: _folder, ...folderTabs } = snapshotFolderTabs(state);
+      if (nextTabs.length === 0) {
+        return {
+          ...emptyFolderState(state.comparisonMode),
+          tabs: [{ id: INITIAL_TAB_ID, kind: "compare" }],
+          activeTabId: INITIAL_TAB_ID,
+          fileTabs: restTabs,
+          folderTabs: {},
+          comparing: false,
+          comparisonContextVersion: state.comparisonContextVersion + 1,
+          tabLifecycleVersion: state.tabLifecycleVersion + 1,
+        };
+      }
+      const nextActive = nextTabs[Math.max(0, idx - 1)];
       return {
+        ...(state.activeTabId === id
+          ? activateTab(state, nextActive, folderTabs)
+          : { folderTabs }),
         tabs: nextTabs,
-        activeTabId: nextActiveId,
         fileTabs: restTabs,
       };
     });
   },
-  setActiveTab: (id) => set({ activeTabId: id }),
+  setActiveTab: (id) => {
+    const state = get();
+    if (state.operating || state.activeTabId === id) return;
+    const tab = state.tabs.find((candidate) => candidate.id === id);
+    if (tab) set(activateTab(state, tab));
+  },
 
   initFileTab: (tabId) =>
     set((state) => {
@@ -382,12 +592,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }),
   setTabFilePath: (tabId, side, newPath) =>
     set((state) => {
+      if (state.operating) return state;
+      const target = state.tabs.find((tab) => tab.id === tabId);
+      if (target?.kind !== "file-compare") return state;
+      const currentPath =
+        side === "left" ? target.leftFilePath : target.rightFilePath;
+      if (currentPath === newPath) return state;
       const tabs = state.tabs.map((t) => {
         if (t.id !== tabId || t.kind !== "file-compare") return t;
+        const leftFilePath = side === "left" ? newPath : t.leftFilePath;
+        const rightFilePath = side === "right" ? newPath : t.rightFilePath;
         const updated: Tab = {
           ...t,
-          leftFilePath: side === "left" ? newPath : t.leftFilePath,
-          rightFilePath: side === "right" ? newPath : t.rightFilePath,
+          leftFilePath,
+          rightFilePath,
+          displayName: filePairLabel(leftFilePath, rightFilePath),
         };
         return updated;
       });
