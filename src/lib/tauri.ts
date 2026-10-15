@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type {
   ComparisonMode,
   ComparisonResult,
@@ -22,8 +22,21 @@ export async function compareFolders(
   });
 }
 
-export async function openFolderDialog(): Promise<string | null> {
-  const selected = await open({ directory: true, multiple: false });
+async function dialogDefaultPath(path?: string): Promise<string | undefined> {
+  if (!path) return undefined;
+  return (
+    (await invoke<string | null>("dialog_default_path", { path })) ?? undefined
+  );
+}
+
+export async function openFolderDialog(
+  defaultPath?: string,
+): Promise<string | null> {
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    defaultPath: await dialogDefaultPath(defaultPath),
+  });
   return selected;
 }
 
@@ -33,9 +46,24 @@ export async function openFileDialog(
   const selected = await open({
     directory: false,
     multiple: false,
-    defaultPath,
+    defaultPath: await dialogDefaultPath(defaultPath),
   });
   return selected;
+}
+
+export async function saveFileDialog(path?: string): Promise<string | null> {
+  const resolved = await dialogDefaultPath(path);
+  const filename = path?.split(/[\\/]/).pop();
+  let defaultPath = resolved;
+  if (filename && resolved !== path) {
+    if (resolved) {
+      const separator = resolved.includes("\\") ? "\\" : "/";
+      defaultPath = `${resolved.replace(/[\\/]+$/, "")}${separator}${filename}`;
+    } else {
+      defaultPath = filename;
+    }
+  }
+  return saveDialog({ title: "Save edited file as", defaultPath });
 }
 
 export async function diffText(

@@ -131,16 +131,21 @@ export function useComparisonPaths(tabId: string) {
       const tab = state.tabs.find((candidate) => candidate.id === tabId);
       const selectedKind =
         kind ?? (tab?.kind === "folder-compare" ? "folder" : "file");
+      const currentPath =
+        tab?.kind === "file-compare"
+          ? side === "left"
+            ? tab.leftFilePath
+            : tab.rightFilePath
+          : tab?.kind === "folder-compare"
+            ? side === "left"
+              ? state.leftPath
+              : state.rightPath
+            : undefined;
       try {
         const path =
           selectedKind === "folder"
-            ? await openFolderDialog()
-            : await openFileDialog(
-                tab?.kind === "file-compare"
-                  ? (side === "left" ? tab.leftFilePath : tab.rightFilePath) ||
-                      undefined
-                  : undefined,
-              );
+            ? await openFolderDialog(currentPath || undefined)
+            : await openFileDialog(currentPath || undefined);
         if (
           path &&
           useAppStore.getState().activeTabId === tabId &&

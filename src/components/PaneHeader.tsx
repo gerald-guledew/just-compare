@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { openFileDialog, openFolderDialog } from "../lib/tauri";
 import {
   PathPickerButton,
@@ -32,6 +38,8 @@ export function PaneHeader({
   onSave,
 }: PaneHeaderProps) {
   const [draft, setDraft] = useState(path);
+  const [pathOverflows, setPathOverflows] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const cancelCommitRef = useRef(false);
   const commitSequenceRef = useRef(0);
   const draftVersionRef = useRef(0);
@@ -39,6 +47,23 @@ export function PaneHeader({
   const acceptedPathRef = useRef(path);
   const mountedRef = useRef(true);
   acceptedPathRef.current = path;
+  const updatePathVisibility = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const overflows = input.scrollWidth > input.clientWidth;
+    setPathOverflows(overflows);
+    if (document.activeElement !== input) {
+      input.scrollLeft = overflows ? input.scrollWidth : 0;
+    }
+  }, []);
+  useLayoutEffect(updatePathVisibility, [draft, updatePathVisibility]);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const observer = new ResizeObserver(updatePathVisibility);
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [updatePathVisibility]);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -89,7 +114,7 @@ export function PaneHeader({
     }
     const picked =
       kind === "folder"
-        ? await openFolderDialog()
+        ? await openFolderDialog(path || undefined)
         : await openFileDialog(path || undefined);
     if (picked && picked !== path) {
       await onPathCommit?.(picked);
@@ -101,7 +126,9 @@ export function PaneHeader({
   return (
     <div className="flex items-center h-8 px-2 bg-gray-50 text-xs text-gray-600 font-medium gap-1 min-w-0">
       <input
+        ref={inputRef}
         type="text"
+        dir="ltr"
         value={draft}
         onChange={(e) => {
           draftVersionRef.current++;
@@ -117,11 +144,14 @@ export function PaneHeader({
             e.currentTarget.blur();
           }
         }}
-        onBlur={() => void commit()}
+        onBlur={() => {
+          void commit();
+          requestAnimationFrame(updatePathVisibility);
+        }}
         readOnly={!onPathCommit}
         disabled={disabled}
         spellCheck={false}
-        className={`flex-1 min-w-0 px-2 py-0.5 bg-white border rounded text-xs font-mono focus:outline-none focus:ring-1 read-only:bg-gray-50 read-only:border-transparent read-only:cursor-default ${
+        className={`flex-1 min-w-0 px-2 py-0.5 bg-white border rounded text-xs font-mono ${pathOverflows ? "text-right" : "text-left"} focus:text-left focus:outline-none focus:ring-1 read-only:bg-gray-50 read-only:border-transparent read-only:cursor-default ${
           hasError
             ? "border-red-300 text-red-700 focus:border-red-400 focus:ring-red-100"
             : "border-gray-200 text-gray-700 focus:border-blue-400 focus:ring-blue-100"
