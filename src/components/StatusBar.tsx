@@ -22,6 +22,7 @@ export function StatusBar({ comparison, fileDiff }: StatusBarProps) {
   const counts = useMemo(() => folderStats(comparison), [comparison]);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
+  const comparisonMode = useAppStore((s) => s.comparisonMode);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const fileTab = useAppStore((s) => s.fileTabs[activeTabId]);
   const leftStats = useMemo(
@@ -115,19 +116,26 @@ export function StatusBar({ comparison, fileDiff }: StatusBarProps) {
       >
         All nested items
       </span>
+      {comparisonMode === "Verified" && (
+        <span
+          className="text-gray-600"
+          title="These file pairs were confirmed identical by comparing their contents."
+        >
+          {quantity(counts.identical, "file")} identical by content
+        </span>
+      )}
+      {comparisonMode === "Quick" && (
+        <span
+          className="text-gray-600"
+          title="File pairs with matching size and modification time. Their contents have not been checked."
+        >
+          {quantity(counts.metadata, "file")} matching size and time
+        </span>
+      )}
       <span
-        className="text-gray-600"
-        title="These file pairs were confirmed identical by comparing their contents."
+        className="text-amber-700"
+        title="Shared folders count once when they contain a modified item, including nested items. File/folder type mismatches also count as one folder. Left-only and right-only items have separate totals."
       >
-        {quantity(counts.identical, "file")} identical by content
-      </span>
-      <span
-        className="text-gray-600"
-        title="File pairs with matching size and modification time. Their contents have not been checked."
-      >
-        {quantity(counts.metadata, "file")} matching size and time
-      </span>
-      <span className="text-amber-700">
         Modified: {quantity(counts.modified.files, "file")},{" "}
         {quantity(counts.modified.folders, "folder")}
       </span>

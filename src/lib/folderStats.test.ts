@@ -114,4 +114,32 @@ describe("folderStats", () => {
     expect(folderStats([folder]).total).toEqual({ files: 1, folders: 1 });
     expect(folderStats([folder]).identical).toBe(1);
   });
+
+  it("counts each shared ancestor of modified files once", () => {
+    const nested = entry("DirectoryBoth", [
+      entry("Modified"),
+      entry("Modified"),
+    ]);
+    nested.has_modified_children = true;
+    const parent = entry("DirectoryBoth", [nested, entry("Modified")]);
+    parent.has_modified_children = true;
+
+    const counts = folderStats([parent, entry("DirectoryBoth", [])]);
+    expect(counts.modified).toEqual({ files: 3, folders: 2 });
+    expect(counts.total).toEqual({ files: 3, folders: 3 });
+  });
+
+  it("keeps one-sided descendants separate from modified shared folders", () => {
+    const parent = entry("DirectoryBoth", [
+      entry("DirectoryLeftOnly", [entry("LeftOnly")]),
+      entry("RightOnly"),
+    ]);
+    parent.has_orphan_children = true;
+    parent.has_modified_children = false;
+
+    const counts = folderStats([parent]);
+    expect(counts.modified).toEqual({ files: 0, folders: 0 });
+    expect(counts.leftOnly).toEqual({ files: 1, folders: 1 });
+    expect(counts.rightOnly).toEqual({ files: 1, folders: 0 });
+  });
 });

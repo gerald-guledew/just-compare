@@ -76,6 +76,12 @@ afterEach(() => {
 });
 
 it("separates nested files from folders even when the tree is collapsed", async () => {
+  const shared = entry("DirectoryBoth", [
+    entry("Identical"),
+    entry("MetadataMatch"),
+    entry("Modified"),
+  ]);
+  shared.has_modified_children = true;
   const comparison = [
     entry("DirectoryLeftOnly", [
       entry("LeftOnly"),
@@ -83,32 +89,25 @@ it("separates nested files from folders even when the tree is collapsed", async 
       entry("DirectoryLeftOnly", [entry("LeftOnly")]),
     ]),
     entry("DirectoryRightOnly", [entry("RightOnly"), entry("RightOnly")]),
-    entry("DirectoryBoth", [
-      entry("Identical"),
-      entry("MetadataMatch"),
-      entry("Modified"),
-    ]),
+    shared,
   ];
   useAppStore.setState({
     activeTabId: "folder-summary",
     tabs: [{ id: "folder-summary", kind: "folder-compare" }],
     expandedPaths: new Set(),
     fileTabs: {},
+    comparisonMode: "Quick",
   });
   mount(comparison);
   const summary = page.getByRole("group", {
     name: "Folder comparison summary",
   });
   await expect.element(summary).toHaveTextContent("All nested items");
-  await expect
-    .element(summary)
-    .toHaveTextContent("1 file identical by content");
+  await expect.element(summary).not.toHaveTextContent("identical by content");
   await expect
     .element(summary)
     .toHaveTextContent("1 file matching size and time");
-  await expect
-    .element(summary)
-    .toHaveTextContent("Modified: 1 file, 0 folders");
+  await expect.element(summary).toHaveTextContent("Modified: 1 file, 1 folder");
   await expect
     .element(summary)
     .toHaveTextContent("Left-only: 3 files, 2 folders");
@@ -127,10 +126,50 @@ it("separates nested files from folders even when the tree is collapsed", async 
       "title",
       "File pairs with matching size and modification time. Their contents have not been checked.",
     );
+  await expect
+    .element(page.getByText("Modified: 1 file, 1 folder", { exact: true }))
+    .toHaveAttribute(
+      "title",
+      "Shared folders count once when they contain a modified item, including nested items. File/folder type mismatches also count as one folder. Left-only and right-only items have separate totals.",
+    );
   const before = host?.textContent;
   useAppStore.setState({ expandedPaths: new Set(["example"]) });
   await vi.waitFor(() => expect(host?.textContent).toBe(before));
 });
+
+it.each([
+  { mode: "Quick" as const, count: 0 },
+  { mode: "Quick" as const, count: 1 },
+  { mode: "Verified" as const, count: 0 },
+  { mode: "Verified" as const, count: 1 },
+])(
+  "shows only the relevant match count for $mode with $count matches",
+  async ({ mode, count }) => {
+    useAppStore.setState({
+      activeTabId: "mode-summary",
+      tabs: [{ id: "mode-summary", kind: "folder-compare" }],
+      comparisonMode: mode,
+      fileTabs: {},
+    });
+    mount(count ? [entry("Identical"), entry("MetadataMatch")] : []);
+    const summary = page.getByRole("group", {
+      name: "Folder comparison summary",
+    });
+    const files = count === 1 ? "1 file" : "0 files";
+    await expect
+      .element(summary)
+      .toHaveTextContent(
+        mode === "Quick"
+          ? `${files} matching size and time`
+          : `${files} identical by content`,
+      );
+    await expect
+      .element(summary)
+      .not.toHaveTextContent(
+        mode === "Quick" ? "identical by content" : "matching size and time",
+      );
+  },
+);
 
 it("describes positional line changes without altering their totals", async () => {
   useAppStore.setState({
