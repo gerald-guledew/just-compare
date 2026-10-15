@@ -44,6 +44,10 @@ export function folderStats(entries: ComparisonEntry[] | null): FolderStats {
         case "Modified":
           counts.modified[kind]++;
           break;
+        case "DirectoryBoth":
+          // Use the same recursive backend flag as the modified folder icon.
+          if (entry.has_modified_children) counts.modified.folders++;
+          break;
         case "LeftOnly":
         case "DirectoryLeftOnly":
           counts.leftOnly[kind]++;
