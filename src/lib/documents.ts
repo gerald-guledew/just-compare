@@ -1,9 +1,16 @@
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { fileVersion, readFileText, saveDocument } from "./tauri";
+import {
+  fileVersion,
+  readFileText,
+  saveDocument,
+  saveFileDialog,
+} from "./tauri";
 import { detectTerminator } from "./splice";
 import { useAppStore, type FileTabBuffer, type Side } from "../stores/appStore";
+import type { SaveConflictReason } from "../types";
 
-export type SaveConflictChoice = "reload" | "overwrite" | "cancel";
+export type SaveConflictChoice =
+  "reload" | "overwrite" | "recreate" | "saveAs" | "cancel";
 let conflictResolver: ((choice: SaveConflictChoice) => void) | null = null;
 let conflictQueue: Promise<unknown> = Promise.resolve();
 export function resolveSaveConflict(choice: SaveConflictChoice): void {
@@ -15,14 +22,35 @@ export function resolveSaveConflict(choice: SaveConflictChoice): void {
 function askConflict(
   path: string,
   message: string,
+  reason: SaveConflictReason,
+  side: Side,
+  tabId: string,
+  documentId: string,
+  isSaveAs = false,
 ): Promise<SaveConflictChoice> {
-  const task = conflictQueue.then(
-    () =>
-      new Promise<SaveConflictChoice>((resolve) => {
-        conflictResolver = resolve;
-        useAppStore.setState({ saveConflict: { path, message } });
-      }),
-  );
+  const task = conflictQueue.then(() => {
+    if (!current(tabId, side, documentId)) return "cancel" as const;
+    return new Promise<SaveConflictChoice>((resolve) => {
+      const finish = (choice: SaveConflictChoice) => {
+        unsubscribe();
+        resolve(choice);
+      };
+      const unsubscribe = useAppStore.subscribe(() => {
+        if (!current(tabId, side, documentId) && conflictResolver === finish)
+          resolveSaveConflict("cancel");
+      });
+      conflictResolver = finish;
+      useAppStore.setState({
+        saveConflict: {
+          path,
+          message,
+          reason,
+          side,
+          ...(isSaveAs ? { isSaveAs: true } : {}),
+        },
+      });
+    });
+  });
   conflictQueue = task.catch(() => undefined);
   return task;
 }
@@ -75,6 +103,7 @@ export async function reloadDocument(
   tabId: string,
   side: Side,
   prompt = true,
+  targetPath?: string,
 ): Promise<void> {
   const original = useAppStore.getState().fileTabs[tabId]?.[side];
   if (!original) return;
@@ -82,15 +111,30 @@ export async function reloadDocument(
     if (
       prompt &&
       original.dirty &&
-      !(await confirm("Discard local changes on this side?", {
-        title: "Reload from disk",
+      !(await confirm("Discard changes on this side?", {
+        title: `Reload ${side} file from disk`,
         kind: "warning",
+        okLabel: "Discard and reload",
+        cancelLabel: "Cancel",
       }))
     )
       return;
-    const fresh = await readFileText(original.canonicalPath);
+    const fresh = await readFileText(targetPath ?? original.canonicalPath);
     const latest = current(tabId, side, original.documentId);
     if (!latest || latest.revision !== original.revision) return;
+    if (targetPath && targetPath !== original.canonicalPath) {
+      useAppStore
+        .getState()
+        .markSavedAs(
+          tabId,
+          side,
+          fresh.canonical_path,
+          fresh.text,
+          original.documentId,
+          fresh.disk_version,
+          fresh.mtime_ms,
+        );
+    }
     patch(tabId, side, original.documentId, {
       ...documentBuffer(fresh),
       revision: original.revision + 1,
@@ -102,16 +146,20 @@ export async function reloadDocument(
 
 const saves = new Map<string, Promise<void>>();
 const pending = new Map<string, Promise<void>>();
+function canSave(tabId: string, side: Side, documentId: string): boolean {
+  if (!current(tabId, side, documentId)) return false;
+  if (!useAppStore.getState().operating) return true;
+  patch(tabId, side, documentId, {
+    operationError:
+      "A filesystem operation is running. Save again after it finishes.",
+  });
+  return false;
+}
+
 export function saveDocumentSide(tabId: string, side: Side): Promise<void> {
   const snapshot = useAppStore.getState().fileTabs[tabId]?.[side];
-  if (snapshot && useAppStore.getState().operating) {
-    patch(tabId, side, snapshot.documentId, {
-      operationError:
-        "A filesystem operation is running. Save again after it finishes.",
-    });
-    return Promise.resolve();
-  }
   if (!snapshot?.dirty) return Promise.resolve();
+  if (!canSave(tabId, side, snapshot.documentId)) return Promise.resolve();
   const key = `${snapshot.documentId}:${snapshot.revision}`;
   const existing = pending.get(key);
   if (existing) return existing;
@@ -119,7 +167,7 @@ export function saveDocumentSide(tabId: string, side: Side): Promise<void> {
   const task = prior
     .catch(() => undefined)
     .then(async () => {
-      if (!current(tabId, side, snapshot.documentId)) return;
+      if (!canSave(tabId, side, snapshot.documentId)) return;
       patch(tabId, side, snapshot.documentId, {
         saving: true,
         operationError: null,
@@ -128,40 +176,86 @@ export function saveDocumentSide(tabId: string, side: Side): Promise<void> {
       let expected: string | null =
         current(tabId, side, snapshot.documentId)?.diskVersion ??
         snapshot.diskVersion;
+      let targetPath =
+        current(tabId, side, snapshot.documentId)?.canonicalPath ??
+        snapshot.canonicalPath;
+      let saveAsChosen = false;
       try {
         for (;;) {
+          if (!canSave(tabId, side, snapshot.documentId)) return;
           const outcome = await saveDocument(
-            snapshot.canonicalPath,
+            targetPath,
             snapshot.text,
             snapshot.bom,
             expected,
           );
           if (!current(tabId, side, snapshot.documentId)) return;
           if (outcome.kind === "saved") {
-            useAppStore
-              .getState()
-              .markSaved(
-                tabId,
-                side,
-                outcome.mtime_ms,
-                snapshot.text,
-                snapshot.documentId,
-                outcome.disk_version,
-              );
+            if (saveAsChosen) {
+              useAppStore
+                .getState()
+                .markSavedAs(
+                  tabId,
+                  side,
+                  targetPath,
+                  snapshot.text,
+                  snapshot.documentId,
+                  outcome.disk_version,
+                  outcome.mtime_ms,
+                );
+            } else {
+              useAppStore
+                .getState()
+                .markSaved(
+                  tabId,
+                  side,
+                  outcome.mtime_ms,
+                  snapshot.text,
+                  snapshot.documentId,
+                  outcome.disk_version,
+                );
+            }
             return;
           }
           patch(tabId, side, snapshot.documentId, { diskStale: true });
           const choice = await askConflict(
-            snapshot.canonicalPath,
+            targetPath,
             outcome.message,
+            outcome.reason,
+            side,
+            tabId,
+            snapshot.documentId,
+            saveAsChosen,
           );
-          if (!current(tabId, side, snapshot.documentId) || choice === "cancel")
+          if (!canSave(tabId, side, snapshot.documentId) || choice === "cancel")
             return;
-          if (choice === "reload") {
-            await reloadDocument(tabId, side);
+          if (choice === "reload" && outcome.reason === "changed") {
+            await reloadDocument(tabId, side, true, targetPath);
             return;
           }
-          expected = outcome.disk_version;
+          if (
+            choice === "overwrite" &&
+            outcome.reason === "changed" &&
+            outcome.disk_version !== null
+          ) {
+            expected = outcome.disk_version;
+          } else if (
+            choice === "recreate" &&
+            outcome.reason === "missingFile" &&
+            outcome.disk_version === null
+          ) {
+            expected = null;
+          } else if (choice === "saveAs") {
+            const selected = await saveFileDialog(targetPath);
+            if (!selected || !canSave(tabId, side, snapshot.documentId)) return;
+            targetPath = selected;
+            saveAsChosen = true;
+            // An existing or newly appeared destination requires a separate
+            // overwrite decision for the exact version reported by the backend.
+            expected = null;
+          } else {
+            return;
+          }
         }
       } catch (e) {
         patch(tabId, side, snapshot.documentId, {

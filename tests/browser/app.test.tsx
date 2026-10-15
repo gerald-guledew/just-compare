@@ -32,6 +32,7 @@ vi.mock("../../src/lib/persistence", () => ({
 vi.mock("../../src/lib/tauri", () => ({
   readFileText: vi.fn(),
   saveDocument: vi.fn(),
+  saveFileDialog: vi.fn().mockResolvedValue(null),
   openFileDialog: vi.fn(),
   diffText: vi.fn(),
   planFsBatch: vi.fn(),
@@ -240,7 +241,9 @@ it.each(["left", "right"] as const)(
     );
     await page
       .getByRole("combobox", { name: "Comparison mode" })
-      .selectOptions("Verified");
+      .selectOptions(
+        page.getByRole("option", { name: "Thorough", exact: true }),
+      );
     const modeInput = document.querySelector<HTMLSelectElement>(
       '[aria-label="Comparison mode"]',
     );
@@ -248,6 +251,8 @@ it.each(["left", "right"] as const)(
       (button) => button.textContent?.trim() === "Compare",
     );
     expect(modeInput).not.toBeNull();
+    expect(modeInput!.value).toBe("Verified");
+    expect(modeInput!.selectedOptions[0].textContent).toBe("Thorough");
     expect(compareButton).not.toBeUndefined();
     const modeRect = modeInput!.getBoundingClientRect();
     const compareRect = compareButton!.getBoundingClientRect();
@@ -266,10 +271,30 @@ it("keeps a neutral tab unchanged when the first folder picker is cancelled", as
   const initialTab = useAppStore.getState().tabs[0];
   await page.getByRole("button", { name: "Select right folder/file" }).click();
   await page.getByRole("menuitem", { name: "Choose a folder…" }).click();
-  expect(openFolderDialog).toHaveBeenCalledWith();
+  expect(openFolderDialog).toHaveBeenCalledWith(undefined);
   expect(useAppStore.getState().tabs).toEqual([initialTab]);
   expect(useAppStore.getState().activeTabId).toBe(initialTab.id);
   expect(comparisonPathKind).not.toHaveBeenCalled();
+  expect(compareFolders).not.toHaveBeenCalled();
+});
+
+it("starts each folder picker from its own root and preserves the pair when cancelled", async () => {
+  mountApp();
+  await commitPath("Left comparison path", "/l");
+  await commitPath("Right folder path", "/r");
+  const initialState = useAppStore.getState();
+
+  await page.getByRole("button", { name: "Choose left folder" }).click();
+  expect(openFolderDialog).toHaveBeenLastCalledWith("/l");
+  await page.getByRole("button", { name: "Choose right folder" }).click();
+  expect(openFolderDialog).toHaveBeenLastCalledWith("/r");
+
+  expect(useAppStore.getState()).toMatchObject({
+    leftPath: "/l",
+    rightPath: "/r",
+    activeTabId: initialState.activeTabId,
+  });
+  expect(openFileDialog).not.toHaveBeenCalled();
   expect(compareFolders).not.toHaveBeenCalled();
 });
 

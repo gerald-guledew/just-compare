@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
@@ -34,8 +35,9 @@ const FileCompareView = lazy(() =>
   })),
 );
 import { FolderDropTarget } from "./components/FolderDropTarget";
-import { StatusBar } from "./components/StatusBar";
+import { StatusBar, type FileDiffSummary } from "./components/StatusBar";
 import { ConflictDialog } from "./components/ConflictDialog";
+import { SaveConflictDialog } from "./components/SaveConflictDialog";
 import { ProgressDialog } from "./components/ProgressDialog";
 import { loadComparisonMode, loadWordWrap } from "./lib/persistence";
 
@@ -66,6 +68,8 @@ class EditorBoundary extends Component<
 }
 
 export default function App() {
+  const [fileDiffSummary, setFileDiffSummary] =
+    useState<FileDiffSummary | null>(null);
   const leftPath = useAppStore((s) => s.leftPath);
   const rightPath = useAppStore((s) => s.rightPath);
   const comparing = useAppStore((s) => s.comparing);
@@ -400,40 +404,20 @@ export default function App() {
                 onPathCommit={paths.commitPath}
                 onPickFile={(side) => void paths.pickPath(side, "file")}
                 pathsDisabled={operating}
+                onDiffSummary={setFileDiffSummary}
               />
             </Suspense>
           </EditorBoundary>
         )}
       </div>
 
-      <StatusBar comparison={comparison} />
+      <StatusBar comparison={comparison} fileDiff={fileDiffSummary} />
 
       {saveConflict && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="File changed on disk"
-            className="bg-white p-5 rounded shadow-xl max-w-lg"
-          >
-            <h2 className="font-semibold">File changed on disk</h2>
-            <p className="text-sm break-all my-3">{saveConflict.path}</p>
-            <p className="text-sm">
-              {saveConflict.message}. Choose how to handle your local edits.
-            </p>
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => resolveSaveConflict("reload")}>
-                Reload from disk
-              </button>
-              <button onClick={() => resolveSaveConflict("overwrite")}>
-                Overwrite
-              </button>
-              <button autoFocus onClick={() => resolveSaveConflict("cancel")}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+        <SaveConflictDialog
+          request={saveConflict}
+          onResolve={resolveSaveConflict}
+        />
       )}
       {folderOps.conflictRequest && (
         <ConflictDialog

@@ -13,6 +13,8 @@ import { DiffMinimap } from "./DiffMinimap";
 import { DropTargetOverlay } from "./DropTargetOverlay";
 import { openFileDialog } from "../lib/tauri";
 import { computeDiffBlocks, type DiffBlock } from "../lib/diffBlocks";
+import { diffStats } from "../lib/fileStats";
+import type { FileDiffSummary } from "./StatusBar";
 import { useAppStore, type BufferEdit, type Side } from "../stores/appStore";
 
 interface FileCompareViewProps {
@@ -22,6 +24,7 @@ interface FileCompareViewProps {
   onPathCommit?: (side: Side, path: string) => Promise<boolean>;
   onPickFile?: (side: Side) => void;
   pathsDisabled?: boolean;
+  onDiffSummary?: (summary: FileDiffSummary) => void;
 }
 
 export function FileCompareView({
@@ -31,8 +34,30 @@ export function FileCompareView({
   onPathCommit,
   onPickFile,
   pathsDisabled = false,
+  onDiffSummary,
 }: FileCompareViewProps) {
   const { save, reload } = useFileBuffers(tabId, leftFilePath, rightFilePath);
+  const [reloadingSide, setReloadingSide] = useState<Side | null>(null);
+  const reloadPendingRef = useRef(false);
+
+  const handleReload = useCallback(
+    async (side: Side) => {
+      if (reloadPendingRef.current) return;
+      reloadPendingRef.current = true;
+      setReloadingSide(side);
+      try {
+        // Let the selected button paint before the native dialog dims the window.
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+        await reload(side);
+      } finally {
+        reloadPendingRef.current = false;
+        setReloadingSide(null);
+      }
+    },
+    [reload],
+  );
 
   const tab = useAppStore((s) => s.fileTabs[tabId]);
   const applyBufferMerge = useAppStore((s) => s.applyBufferMerge);
@@ -55,6 +80,34 @@ export function FileCompareView({
 
   const lines = useMemo(() => result?.lines ?? [], [result]);
   const blocks = useMemo(() => computeDiffBlocks(lines), [lines]);
+  const differences = useMemo(
+    () => (result ? diffStats(lines) : null),
+    [result, lines],
+  );
+  useEffect(() => {
+    onDiffSummary?.({
+      tabId,
+      left: leftBuf
+        ? { documentId: leftBuf.documentId, revision: leftBuf.revision }
+        : null,
+      right: rightBuf
+        ? { documentId: rightBuf.documentId, revision: rightBuf.revision }
+        : null,
+      loading,
+      error: !!error,
+      differences,
+    });
+  }, [
+    onDiffSummary,
+    tabId,
+    leftBuf?.documentId,
+    leftBuf?.revision,
+    rightBuf?.documentId,
+    rightBuf?.revision,
+    loading,
+    error,
+    differences,
+  ]);
 
   const leftEditorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(
     null,
@@ -287,7 +340,9 @@ export function FileCompareView({
       onPickFile(side);
       return;
     }
-    const path = await openFileDialog();
+    const path = await openFileDialog(
+      (side === "left" ? leftFilePath : rightFilePath) || undefined,
+    );
     if (path) await commitPath(side, path);
   };
 
@@ -323,23 +378,39 @@ export function FileCompareView({
           Comparing files…
         </div>
       )}
-      {(leftBuf?.operationError || rightBuf?.operationError) && (
-        <div role="alert" className="p-2 bg-red-50 text-red-700 text-sm">
-          {leftBuf?.operationError ?? rightBuf?.operationError}
-        </div>
-      )}
+      {(["left", "right"] as const).map((side) => {
+        const operationError = tab?.[side]?.operationError;
+        return operationError ? (
+          <div
+            key={side}
+            role="alert"
+            className="p-2 bg-red-50 text-red-700 text-sm break-words"
+          >
+            <span className="font-medium">
+              {side === "left" ? "Left" : "Right"} file:
+            </span>{" "}
+            {operationError}
+          </div>
+        ) : null;
+      })}
       {(leftBuf?.diskStale || rightBuf?.diskStale) && (
         <div className="flex flex-col gap-1">
           {leftBuf?.diskStale && (
             <StaleBanner
+              side="left"
               label="Left file changed on disk"
-              onReload={() => void reload("left")}
+              reloading={reloadingSide === "left"}
+              disabled={reloadingSide !== null}
+              onReload={() => void handleReload("left")}
             />
           )}
           {rightBuf?.diskStale && (
             <StaleBanner
+              side="right"
               label="Right file changed on disk"
-              onReload={() => void reload("right")}
+              reloading={reloadingSide === "right"}
+              disabled={reloadingSide !== null}
+              onReload={() => void handleReload("right")}
             />
           )}
         </div>
@@ -545,10 +616,16 @@ function FooterCell({ show }: { show: boolean }) {
 }
 
 function StaleBanner({
+  side,
   label,
+  reloading,
+  disabled,
   onReload,
 }: {
+  side: Side;
   label: string;
+  reloading: boolean;
+  disabled: boolean;
   onReload: () => void;
 }) {
   return (
@@ -557,7 +634,10 @@ function StaleBanner({
       <button
         type="button"
         onClick={onReload}
-        className="px-2 py-0.5 bg-amber-200 hover:bg-amber-300 rounded text-amber-900 font-medium cursor-pointer"
+        aria-label={`Reload ${side} file from disk`}
+        aria-busy={reloading}
+        disabled={disabled}
+        className="reload-button px-2 py-0.5 bg-amber-200 hover:bg-amber-300 rounded text-amber-900 font-medium cursor-pointer disabled:cursor-default focus-visible:outline-2 focus-visible:outline-violet-700 focus-visible:outline-offset-2"
       >
         Reload
       </button>

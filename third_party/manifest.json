@@ -11,7 +11,7 @@
     "scripts/notices-policy.json": "97f03f9db928d10f106cb953d2e248b83dbfd3c100853dfbd4ccd5db631c620c",
     "scripts/notices.mjs": "d77db7a7561fead7108fafc516de39016ac444eb5d802be2e53b82d56d54930a",
     "src-tauri/Cargo.lock": "54a657767c05942c87500731a9e4aaea36bea2b99a6b6f74f7f6f0a05a7c94bb",
-    "src-tauri/Cargo.toml": "20b39b513e495de31da47f3b84233c9da3d41ff2a939bbd68d894773f263310f",
+    "src-tauri/Cargo.toml": "bbfbcb13843bec4eae8c04cf22dbbb914e86de8c186a635933565ac62118d9b4",
     "third_party/licenses/0BSD.txt": "e3f18c71e10d673590eb9856c1d79dd3b4b0d65404efb5e8584dbede7edd608b",
     "third_party/licenses/Apache-2.0 WITH LLVM-exception.txt": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
     "third_party/licenses/Apache-2.0.txt": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",

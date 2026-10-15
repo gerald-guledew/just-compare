@@ -63,9 +63,15 @@ export interface FileReadResult {
   mtime_ms: number;
   size: number;
 }
+export type SaveConflictReason = "changed" | "missingFile" | "missingFolder";
 export type SaveOutcome =
   | { kind: "saved"; disk_version: string; mtime_ms: number }
-  | { kind: "conflict"; disk_version: string | null; message: string };
+  | {
+      kind: "conflict";
+      disk_version: string | null;
+      message: string;
+      reason: SaveConflictReason;
+    };
 
 export interface FlatComparisonEntry {
   comparison: ComparisonEntry;

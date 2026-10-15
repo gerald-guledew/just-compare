@@ -31,8 +31,7 @@ similar = { version = "2", features = ["inline"] }
 sha2 = "0.10"
 same-file = "1"
 tempfile = "3"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time"] }
 
 [dev-dependencies]
 filetime = "0.2"
-

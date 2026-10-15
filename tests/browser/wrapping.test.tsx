@@ -24,6 +24,7 @@ vi.mock("../../src/lib/persistence", () => ({
 vi.mock("../../src/lib/tauri", () => ({
   readFileText: vi.fn(),
   saveDocument: vi.fn(),
+  saveFileDialog: vi.fn().mockResolvedValue(null),
   openFileDialog: vi.fn().mockResolvedValue(null),
   diffText: vi.fn(),
   planFsBatch: vi.fn(),

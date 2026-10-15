@@ -940,6 +940,149 @@ describe("markSaved", () => {
   });
 });
 
+describe("markSavedAs", () => {
+  it("updates the path and disk snapshot atomically while preserving editor identity", () => {
+    const store = useAppStore.getState();
+    store.openFilePairTab("/left/old.md", "/right/other.md");
+    const id = useAppStore.getState().activeTabId;
+    store.initFileTab(id);
+    store.setFileTabBuffer(
+      id,
+      "left",
+      makeBuffer({
+        text: "submitted",
+        diskText: "old",
+        dirty: true,
+        saving: true,
+        diskStale: true,
+        operationError: "Old error",
+      }),
+    );
+    store.setLoadError(id, "left", "Old load error");
+    const right = makeBuffer({
+      documentId: "right",
+      canonicalPath: "/right/other.md",
+    });
+    store.setFileTabBuffer(id, "right", right);
+    const updates: string[] = [];
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const tab = state.tabs.find((item) => item.id === id);
+      if (tab?.kind === "file-compare")
+        updates.push(
+          `${tab.leftFilePath}:${state.fileTabs[id].left?.canonicalPath}`,
+        );
+    });
+
+    store.markSavedAs(
+      id,
+      "left",
+      "/existing/new.md",
+      "submitted",
+      "doc",
+      "v2",
+      500,
+    );
+    unsubscribe();
+
+    expect(updates).toEqual(["/existing/new.md:/existing/new.md"]);
+    expect(useAppStore.getState().fileTabs[id].left).toMatchObject({
+      documentId: "doc",
+      revision: 0,
+      text: "submitted",
+      diskText: "submitted",
+      canonicalPath: "/existing/new.md",
+      diskVersion: "v2",
+      mtimeMs: 500,
+      dirty: false,
+      saving: false,
+      diskStale: false,
+      operationError: null,
+    });
+    expect(useAppStore.getState().fileTabs[id].leftError).toBeNull();
+    expect(useAppStore.getState().fileTabs[id].right).toBe(right);
+    expect(
+      useAppStore.getState().tabs.find((item) => item.id === id),
+    ).toMatchObject({
+      leftFilePath: "/existing/new.md",
+      rightFilePath: "/right/other.md",
+      displayName: "new.md ↔ other.md",
+    });
+  });
+
+  it("retains newer text, revisions, and merge markers after saving an earlier snapshot elsewhere", () => {
+    const store = useAppStore.getState();
+    store.initFileTab("t1");
+    const ranges = [{ start: 1, end: 2 }];
+    store.setFileTabBuffer(
+      "t1",
+      "left",
+      makeBuffer({
+        text: "newer",
+        revision: 3,
+        dirty: true,
+        yellowRanges: ranges,
+      }),
+    );
+
+    store.markSavedAs(
+      "t1",
+      "left",
+      "/existing/new.md",
+      "submitted",
+      "doc",
+      "v2",
+      500,
+    );
+
+    expect(useAppStore.getState().fileTabs.t1.left).toMatchObject({
+      documentId: "doc",
+      revision: 3,
+      text: "newer",
+      diskText: "submitted",
+      dirty: true,
+      canonicalPath: "/existing/new.md",
+      yellowRanges: ranges,
+    });
+  });
+
+  it("ignores a completion belonging to a replaced document", () => {
+    const store = useAppStore.getState();
+    store.openFilePairTab("/left/replacement.md", "/right/other.md");
+    const id = useAppStore.getState().activeTabId;
+    store.initFileTab(id);
+    store.setFileTabBuffer(
+      id,
+      "left",
+      makeBuffer({
+        documentId: "replacement",
+        canonicalPath: "/left/replacement.md",
+      }),
+    );
+    const before = useAppStore.getState();
+
+    store.markSavedAs(id, "left", "/existing/new.md", "old", "doc", "v2", 500);
+
+    expect(useAppStore.getState()).toBe(before);
+  });
+
+  it("does not recreate a closed tab when its save finishes", () => {
+    const before = useAppStore.getState();
+
+    before.markSavedAs(
+      "closed",
+      "left",
+      "/existing/new.md",
+      "old",
+      "doc",
+      "v2",
+      500,
+    );
+
+    expect(useAppStore.getState()).toBe(before);
+    expect(useAppStore.getState().fileTabs.closed).toBeUndefined();
+  });
+});
+
 describe("selectIsTabDirty", () => {
   it("returns false when the tab is missing", () => {
     expect(selectIsTabDirty(useAppStore.getState(), "nope")).toBe(false);

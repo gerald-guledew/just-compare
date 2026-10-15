@@ -46,18 +46,18 @@ export async function refreshComparison(
 }
 export function useComparison() {
   const pickLeft = useCallback(async () => {
-    const { activeTabId, operating } = useAppStore.getState();
+    const { activeTabId, operating, leftPath } = useAppStore.getState();
     if (operating) return;
-    const path = await openFolderDialog();
+    const path = await openFolderDialog(leftPath || undefined);
     if (path && !useAppStore.getState().operating)
       useAppStore
         .getState()
         .selectComparisonPath(activeTabId, "left", path, "folder");
   }, []);
   const pickRight = useCallback(async () => {
-    const { activeTabId, operating } = useAppStore.getState();
+    const { activeTabId, operating, rightPath } = useAppStore.getState();
     if (operating) return;
-    const path = await openFolderDialog();
+    const path = await openFolderDialog(rightPath || undefined);
     if (path && !useAppStore.getState().operating)
       useAppStore
         .getState()

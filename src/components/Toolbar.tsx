@@ -60,7 +60,7 @@ export function Toolbar({
             className="border border-gray-300 rounded px-2 py-1 bg-white text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-40"
           >
             <option value="Quick">Quick</option>
-            <option value="Verified">Verified</option>
+            <option value="Verified">Thorough</option>
           </select>
         </label>
       </div>

@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+:root {
+  --reload-active-bg: #6d28d9;
+  --reload-active-ring: #c4b5fd;
+}
+
+/* Keep the reload target visible while its native confirmation is open. */
+.reload-button[aria-busy="true"] {
+  background-color: var(--reload-active-bg);
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--reload-active-ring);
+}
+
 /* Cursor while rows are dragged between the folder panes (useRowPointerDrag). */
 body.jc-pointer-move-dragging,
 body.jc-pointer-move-dragging * {

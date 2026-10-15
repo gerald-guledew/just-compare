@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { ComparisonEntry, ComparisonMode } from "../types";
+import type {
+  ComparisonEntry,
+  ComparisonMode,
+  SaveConflictReason,
+} from "../types";
 import {
   savePaths,
   saveComparisonMode,
@@ -17,6 +21,14 @@ export const FOLDER_TAB_ID = "folder";
 export const INITIAL_TAB_ID = "compare";
 
 export type Side = "left" | "right";
+
+export interface SaveConflictRequest {
+  path: string;
+  message: string;
+  reason: SaveConflictReason;
+  side: Side;
+  isSaveAs?: boolean;
+}
 
 export type Tab =
   | { id: string; kind: "compare" }
@@ -122,7 +134,7 @@ export interface AppState {
   tabLifecycleVersion: number;
 
   fileTabs: Record<string, FileTabState>;
-  saveConflict: { path: string; message: string } | null;
+  saveConflict: SaveConflictRequest | null;
 
   setLeftPath: (path: string | null) => void;
   setRightPath: (path: string | null) => void;
@@ -175,6 +187,15 @@ export interface AppState {
     savedText: string,
     documentId: string,
     diskVersion: string,
+  ) => void;
+  markSavedAs: (
+    tabId: string,
+    side: Side,
+    path: string,
+    savedText: string,
+    documentId: string,
+    diskVersion: string,
+    mtimeMs: number,
   ) => void;
 }
 
@@ -718,6 +739,49 @@ export const useAppStore = create<AppState>()((set, get) => ({
       }));
       return {
         fileTabs: { ...state.fileTabs, [tabId]: next },
+      };
+    }),
+  markSavedAs: (
+    tabId,
+    side,
+    path,
+    savedText,
+    documentId,
+    diskVersion,
+    mtimeMs,
+  ) =>
+    set((state) => {
+      const tab = state.fileTabs[tabId];
+      if (!tab || tab[side]?.documentId !== documentId) return state;
+      const errorKey = side === "left" ? "leftError" : "rightError";
+      const next: FileTabState = {
+        ...updateBuffer(tab, side, (buf) => ({
+          ...buf,
+          canonicalPath: path,
+          diskText: savedText,
+          diskVersion,
+          mtimeMs,
+          dirty: buf.text !== savedText,
+          yellowRanges: buf.text === savedText ? [] : buf.yellowRanges,
+          saving: false,
+          operationError: null,
+          diskStale: false,
+        })),
+        [errorKey]: null,
+      };
+      return {
+        fileTabs: { ...state.fileTabs, [tabId]: next },
+        tabs: state.tabs.map((item) => {
+          if (item.id !== tabId || item.kind !== "file-compare") return item;
+          const leftFilePath = side === "left" ? path : item.leftFilePath;
+          const rightFilePath = side === "right" ? path : item.rightFilePath;
+          return {
+            ...item,
+            leftFilePath,
+            rightFilePath,
+            displayName: filePairLabel(leftFilePath, rightFilePath),
+          };
+        }),
       };
     }),
 }));
